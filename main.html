@@ -1,0 +1,2594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zombie Shooter 3D</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        canvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            color: white;
+            font-size: 20px;
+            text-align: center;
+            line-height: 20px;
+        }
+        #health {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            width: 200px;
+            height: 20px;
+            background-color: rgba(0, 0, 0, 0.5);
+            border: 2px solid white;
+        }
+        #healthBar {
+            width: 100%;
+            height: 100%;
+            background-color: #ff3333;
+        }
+        #score {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 24px;
+        }
+        #waveInfo {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 36px;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+        #gameOver, #startScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            pointer-events: auto;
+        }
+        #gameOver {
+            display: none;
+        }
+        #startScreen h1, #gameOver h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            color: #ff3333;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 18px;
+            background-color: #ff3333;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        button:hover {
+            background-color: #cc0000;
+        }
+        #socialButtons {
+            display: flex;
+            margin-top: 20px;
+        }
+        .social {
+            margin: 0 10px;
+            padding: 10px 20px;
+            font-size: 18px;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #facebook {
+            background-color: #3b5998;
+        }
+        #twitter {
+            background-color: #1da1f2;
+        }
+        #ammoCount {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: white;
+            font-size: 24px;
+        }
+        #reloadMessage {
+            position: absolute;
+            bottom: 50px;
+            right: 20px;
+            color: #ff3333;
+            font-size: 24px;
+            opacity: 0;
+        }
+        #powerUpIndicator {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            font-size: 20px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 5px 10px;
+            border-radius: 5px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="crosshair">+</div>
+        <div id="health"><div id="healthBar"></div></div>
+        <div id="score">Score: 0</div>
+        <div id="waveInfo">Wave 1</div>
+        <div id="ammoCount">Ammo: 10/10</div>
+        <div id="reloadMessage">Press R to reload!</div>
+        <div id="powerUpIndicator"></div>
+    </div>
+    <div id="startScreen">
+        <h1>ZOMBIE SHOOTER 3D</h1>
+        <p>Survive waves of zombies for as long as possible!</p>
+        <p>WASD to move, Mouse to aim, Left-click to shoot, R to reload, Space to jump</p>
+        <button id="startButton">START GAME</button>
+    </div>
+    <div id="gameOver">
+        <h1>GAME OVER</h1>
+        <p id="finalScore">Your score: 0</p>
+        <p id="finalWave">You survived until wave: 1</p>
+        <button id="restartButton">PLAY AGAIN</button>
+        <div id="socialButtons">
+            <button id="twitter" class="social">Share on X</button>
+            <button id="facebook" class="social">Share on Facebook</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/cannon@0.6.2/build/cannon.min.js"></script>
+
+    <script>
+        // Game variables
+        let scene, camera, renderer, world;
+        let player, controls, bullets = [];
+        let zombies = [];
+        let gameStarted = false;
+        let playerHealth = 100;
+        let score = 0;
+        let wave = 1;
+        let zombiesInWave = 5;
+        let zombiesSpawned = 0;
+        let zombiesKilled = 0;
+        let waveTimeout = null;
+        let lastShootTime = 0;
+        let shootCooldown = 300; // milliseconds
+        let clock = new THREE.Clock();
+        let playerMesh, gunModel;
+        let obstacles = [];
+        let ammo = 10;
+        let maxAmmo = 10;
+        let isReloading = false;
+        let playerHeight = 1.8;
+        let buildingDoors = []; // Array to store door positions for zombie spawning
+        let buildings = []; // Array to store building information for overlap checking
+        let trees = []; // Array to store tree information for overlap checking
+        let lampPosts = []; // Array to store lamp post information for overlap checking and flickering
+
+        // Map size (reduced to accommodate fence)
+        const WORLD_SIZE = 60;
+        const FENCE_HEIGHT = 3;
+        const FENCE_THICKNESS = 0.5;
+        const LAMP_POST_COUNT = 8; // Number of lamp posts to create
+
+        // Pathfinding variables
+        const OBSTACLE_DETECTION_RADIUS = 3; // How far zombies can detect obstacles
+        const STEERING_FORCE = 5; // How strongly zombies steer around obstacles
+        const WAYPOINT_REACHED_THRESHOLD = 1.5; // How close zombies need to get to a waypoint
+
+        // Texture loader
+        let textureLoader = new THREE.TextureLoader();
+        let textures = {};
+
+        // Power-up system
+        let powerUps = [];
+        let activePowerUp = null;
+        let powerUpDuration = 0;
+        const POWER_UP_TYPES = {
+            RAPID_FIRE: {
+                name: 'Rapid Fire',
+                color: 0xff0000,
+                duration: 10, // seconds
+                apply: () => {
+                    shootCooldown = 100; // much faster fire rate
+                },
+                remove: () => {
+                    shootCooldown = 300; // back to normal
+                }
+            },
+            SHOTGUN: {
+                name: 'Shotgun',
+                color: 0xffaa00,
+                duration: 8, // seconds
+                apply: () => {
+                    // Shotgun logic handled in shoot function
+                },
+                remove: () => {
+                    // Will be handled when power-up expires
+                }
+            },
+            INFINITE_AMMO: {
+                name: 'Infinite Ammo',
+                color: 0x00ffff,
+                duration: 12, // seconds
+                apply: () => {
+                    // Infinite ammo logic handled in shoot function
+                },
+                remove: () => {
+                    // Will be handled when power-up expires
+                }
+            }
+        };
+
+        // Sound effects
+        let shootSound, zombieGroanSound, backgroundMusic, hurtSound, reloadSound;
+        let audioListener;
+
+        // Game settings
+        const ZOMBIE_SPAWN_INTERVAL = 2000; // milliseconds
+        const BUILDING_COUNT = 15;
+        const TREE_COUNT = 20;
+        
+        // Initialize the game
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x88aacc);
+            scene.fog = new THREE.FogExp2(0x88aacc, 0.01);
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.y = playerHeight;
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({antialias: true});
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+            
+            // Create physics world
+            world = new CANNON.World();
+            world.gravity.set(0, -9.82, 0);
+            world.broadphase = new CANNON.NaiveBroadphase();
+            world.solver.iterations = 10;
+            
+            // Setup audio
+            setupAudio();
+            
+            // Load textures
+            loadTextures();
+            
+            // Create lighting
+            createLighting();
+            
+            // Create floor
+            createFloor();
+            
+            // Create player
+            createPlayer();
+            
+            // Create environment
+            createEnvironment();
+            
+            // Set up event listeners
+            window.addEventListener('resize', onWindowResize);
+            window.addEventListener('click', shoot);
+            window.addEventListener('keydown', onKeyDown);
+            
+            // Set up UI event listeners
+            document.getElementById('startButton').addEventListener('click', startGame);
+            document.getElementById('restartButton').addEventListener('click', restartGame);
+            document.getElementById('twitter').addEventListener('click', () => shareScore('twitter'));
+            document.getElementById('facebook').addEventListener('click', () => shareScore('facebook'));
+            
+            // Start animation loop
+            animate();
+        }
+        
+        function setupAudio() {
+            audioListener = new THREE.AudioListener();
+            camera.add(audioListener);
+            
+            // Create sound effects
+            shootSound = new THREE.Audio(audioListener);
+            zombieGroanSound = new THREE.Audio(audioListener);
+            backgroundMusic = new THREE.Audio(audioListener);
+            hurtSound = new THREE.Audio(audioListener);
+            reloadSound = new THREE.Audio(audioListener);
+            
+            // Load audio files
+            const audioLoader = new THREE.AudioLoader();
+            
+            audioLoader.load('https://cdnjs.cloudflare.com/audio-samples/sounds/gun.mp3', function(buffer) {
+                shootSound.setBuffer(buffer);
+                shootSound.setVolume(0.5);
+            }, undefined, function(error) {
+                console.error('An error occurred while loading sound.', error);
+                // Create fallback sound
+                const oscillator = audioListener.context.createOscillator();
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(220, audioListener.context.currentTime);
+                const gainNode = audioListener.context.createGain();
+                gainNode.gain.setValueAtTime(0.1, audioListener.context.currentTime);
+                oscillator.connect(gainNode);
+                gainNode.connect(audioListener.context.destination);
+                shootSound.setVolume = () => {};
+                shootSound.play = () => {
+                    const osc = audioListener.context.createOscillator();
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(220, audioListener.context.currentTime);
+                    const gain = audioListener.context.createGain();
+                    gain.gain.setValueAtTime(0.1, audioListener.context.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioListener.context.currentTime + 0.2);
+                    osc.connect(gain);
+                    gain.connect(audioListener.context.destination);
+                    osc.start();
+                    osc.stop(audioListener.context.currentTime + 0.2);
+                };
+            });
+            
+            // Create simple audio fallbacks
+            zombieGroanSound.play = () => {};
+            hurtSound.play = () => {};
+            reloadSound.play = () => {};
+            
+            // Background music (silent placeholder)
+            backgroundMusic.play = () => {};
+            backgroundMusic.isPlaying = false;
+        }
+        
+        function loadTextures() {
+            // Define texture URLs - using placeholder URLs that work without actual file hosting
+            const textureURLs = {
+                grass: 'https://threejs.org/examples/textures/terrain/grasslight-big.jpg',
+                dirt: 'https://threejs.org/examples/textures/terrain/grasslight-big-nm.jpg',
+                asphalt: 'https://threejs.org/examples/textures/brick_diffuse.jpg',
+                bricks: 'https://threejs.org/examples/textures/brick_bump.jpg',
+                wood: 'https://threejs.org/examples/textures/wood.jpg',
+                bark: 'https://threejs.org/examples/textures/crate.gif',
+                leaves: 'https://threejs.org/examples/textures/lavatile.jpg'
+            };
+            
+            // Load all textures
+            for (const [key, url] of Object.entries(textureURLs)) {
+                const texture = textureLoader.load(url, 
+                    // Success callback - nothing needed
+                    undefined, 
+                    // Progress callback - nothing needed
+                    undefined,
+                    // Error callback - use placeholder if texture fails to load
+                    function() {
+                        console.warn(`Failed to load texture: ${key}`);
+                        // Create a simple placeholder texture
+                        const canvas = document.createElement('canvas');
+                        canvas.width = 256;
+                        canvas.height = 256;
+                        const ctx = canvas.getContext('2d');
+                        
+                        // Create a simple colored pattern based on the texture type
+                        let color1, color2;
+                        switch(key) {
+                            case 'grass': color1 = '#33AA33'; color2 = '#338833'; break;
+                            case 'dirt': color1 = '#8B4513'; color2 = '#A52A2A'; break;
+                            case 'asphalt': color1 = '#555555'; color2 = '#666666'; break;
+                            case 'bricks': color1 = '#AA3333'; color2 = '#BB5555'; break;
+                            case 'wood': color1 = '#8B4513'; color2 = '#A0522D'; break;
+                            case 'bark': color1 = '#8B4513'; color2 = '#A0522D'; break;
+                            case 'leaves': color1 = '#228B22'; color2 = '#006400'; break;
+                            default: color1 = '#AAAAAA'; color2 = '#888888';
+                        }
+                        
+                        // Create a checkered pattern
+                        const tileSize = 32;
+                        for (let y = 0; y < canvas.height; y += tileSize) {
+                            for (let x = 0; x < canvas.width; x += tileSize) {
+                                ctx.fillStyle = ((x/tileSize + y/tileSize) % 2 === 0) ? color1 : color2;
+                                ctx.fillRect(x, y, tileSize, tileSize);
+                            }
+                        }
+                        
+                        const fallbackTexture = new THREE.CanvasTexture(canvas);
+                        fallbackTexture.wrapS = THREE.RepeatWrapping;
+                        fallbackTexture.wrapT = THREE.RepeatWrapping;
+                        textures[key] = fallbackTexture;
+                    }
+                );
+                
+                // Configure texture
+                texture.wrapS = THREE.RepeatWrapping;
+                texture.wrapT = THREE.RepeatWrapping;
+                texture.repeat.set(10, 10); // Default repeat for most textures
+                textures[key] = texture;
+            }
+            
+            // Specific texture configurations
+            if (textures.grass) textures.grass.repeat.set(20, 20);
+            if (textures.asphalt) textures.asphalt.repeat.set(5, 5);
+        }
+        
+        function createLighting() {
+            // Add ambient light
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+            scene.add(ambientLight);
+            
+            // Add directional light (sunlight)
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(10, 30, 10);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            dirLight.shadow.camera.left = -50;
+            dirLight.shadow.camera.right = 50;
+            dirLight.shadow.camera.top = 50;
+            dirLight.shadow.camera.bottom = -50;
+            dirLight.shadow.camera.far = 100;
+            scene.add(dirLight);
+            
+            // Add hemisphere light for better ambient lighting
+            const hemiLight = new THREE.HemisphereLight(0xffffbb, 0x080820, 0.5);
+            scene.add(hemiLight);
+        }
+        
+        function createFloor() {
+            // Create floor mesh with texture
+            const floorGeometry = new THREE.PlaneGeometry(WORLD_SIZE * 2, WORLD_SIZE * 2, 32, 32);
+            const floorMaterial = new THREE.MeshStandardMaterial({
+                map: textures.grass,
+                normalMap: textures.dirt,
+                roughness: 0.8,
+                metalness: 0.2
+            });
+            
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            
+            // Create floor physics body
+            const floorShape = new CANNON.Plane();
+            const floorBody = new CANNON.Body({mass: 0});
+            floorBody.addShape(floorShape);
+            floorBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+            world.addBody(floorBody);
+        }
+        
+        function createPlayer() {
+            // Create player physics body
+            const playerShape = new CANNON.Sphere(0.5);
+            player = new CANNON.Body({
+                mass: 5,
+                position: new CANNON.Vec3(0, playerHeight, 0),
+                shape: playerShape
+            });
+            player.linearDamping = 0.9;
+            world.addBody(player);
+            
+            // Create player mesh (invisible, just for gun positioning)
+            const playerGeometry = new THREE.SphereGeometry(0.5, 16, 16);
+            const playerMaterial = new THREE.MeshBasicMaterial({
+                color: 0xff0000,
+                wireframe: true,
+                visible: false
+            });
+            playerMesh = new THREE.Mesh(playerGeometry, playerMaterial);
+            scene.add(playerMesh);
+            
+            // Create simple gun model
+            const gunGeometry = new THREE.BoxGeometry(0.1, 0.1, 0.5);
+            const gunMaterial = new THREE.MeshStandardMaterial({color: 0x333333});
+            gunModel = new THREE.Mesh(gunGeometry, gunMaterial);
+            gunModel.position.set(0.3, -0.2, -0.5);
+            camera.add(gunModel);
+            
+            // Setup pointer lock controls
+            controls = {
+                enabled: false,
+                moveForward: false,
+                moveBackward: false,
+                moveLeft: false,
+                moveRight: false,
+                canJump: false,
+                isJumping: false,
+                velocity: new THREE.Vector3(),
+                direction: new THREE.Vector3()
+            };
+            
+            // Add contact event for ground detection
+            player.addEventListener("collide", function(e) {
+                const contact = e.contact;
+                
+                // Check if the contact normal is pointing up (the player is on the ground)
+                if (contact.ni.y > 0.5) {
+                    controls.canJump = true;
+                    controls.isJumping = false;
+                }
+            });
+            
+            // Set up pointer lock
+            const canvas = renderer.domElement;
+            
+            canvas.addEventListener('click', function() {
+                if (gameStarted && controls.enabled) {
+                    return;
+                }
+                if (gameStarted) {
+                    canvas.requestPointerLock = canvas.requestPointerLock || canvas.mozRequestPointerLock;
+                    canvas.requestPointerLock();
+                }
+            });
+            
+            const pointerlockchange = function() {
+                controls.enabled = document.pointerLockElement === canvas || document.mozPointerLockElement === canvas;
+            };
+            
+            document.addEventListener('pointerlockchange', pointerlockchange, false);
+            document.addEventListener('mozpointerlockchange', pointerlockchange, false);
+            
+            document.addEventListener('keydown', function(event) {
+                if (!controls.enabled) return;
+                
+                switch (event.code) {
+                    case 'KeyS':
+                        controls.moveForward = true;
+                        break;
+                    case 'KeyA':
+                        controls.moveLeft = true;
+                        break;
+                    case 'KeyW':
+                        controls.moveBackward = true;
+                        break;
+                    case 'KeyD':
+                        controls.moveRight = true;
+                        break;
+                    case 'Space':
+                        jump();
+                        break;
+                }
+            });
+            
+            // Add mouse movement for camera control
+            let pitch = 0; // Track vertical rotation separately
+            let yaw = 0;   // Track horizontal rotation separately
+            
+            document.addEventListener('mousemove', function(event) {
+                if (!controls.enabled) return;
+                
+                const movementX = event.movementX || event.mozMovementX || 0;
+                const movementY = event.movementY || event.mozMovementY || 0;
+                
+                // Update rotation angles
+                yaw -= movementX * 0.002;
+                pitch -= movementY * 0.002; // This gives natural mouse movement
+                
+                // Constrain pitch to prevent flipping
+                pitch = Math.max(-Math.PI/2, Math.min(Math.PI/2, pitch));
+                
+                // Apply rotations - this prevents gimbal lock
+                camera.rotation.set(pitch, yaw, 0, 'YXZ');
+            });
+            
+            document.addEventListener('keyup', function(event) {
+    if (!controls.enabled) return;
+    
+    switch (event.code) {
+        case 'KeyS':  // Forward
+            controls.moveForward = false;
+            break;
+        case 'KeyA':  // Left
+            controls.moveLeft = false;
+            break;
+        case 'KeyW':  // Backward
+            controls.moveBackward = false;
+            break;
+        case 'KeyD':  // Right
+            controls.moveRight = false;
+            break;
+    }
+});
+        }
+        
+        function createEnvironment() {
+            // Create buildings with max attempts to prevent infinite loops if space is too crowded
+            let buildingsCreated = 0;
+            let maxAttempts = BUILDING_COUNT * 5; // Allow multiple attempts per building
+            let attempts = 0;
+            
+            while (buildingsCreated < BUILDING_COUNT && attempts < maxAttempts) {
+                attempts++;
+                if (tryCreateBuilding()) {
+                    buildingsCreated++;
+                }
+            }
+            
+            // Create trees with overlap prevention
+            let treesCreated = 0;
+            maxAttempts = TREE_COUNT * 5; // Allow multiple attempts per tree
+            attempts = 0;
+            
+            while (treesCreated < TREE_COUNT && attempts < maxAttempts) {
+                attempts++;
+                if (tryCreateTree()) {
+                    treesCreated++;
+                }
+            }
+            
+            // Create lamp posts with overlap prevention
+            let lampsCreated = 0;
+            maxAttempts = LAMP_POST_COUNT * 5; // Allow multiple attempts per lamp
+            attempts = 0;
+            
+            while (lampsCreated < LAMP_POST_COUNT && attempts < maxAttempts) {
+                attempts++;
+                if (tryCreateLampPost()) {
+                    lampsCreated++;
+                }
+            }
+
+            // Create fences surrounding the map
+            createMapBoundary();
+
+            // Spawn initial power-ups
+            spawnPowerUp();
+        }
+        
+        // Try to create a building and return true if successful
+        function tryCreateBuilding() {
+            // Random position within world bounds (accounting for fence)
+            const posX = (Math.random() * (WORLD_SIZE - 10)) - ((WORLD_SIZE - 10) / 2);
+            const posZ = (Math.random() * (WORLD_SIZE - 10)) - ((WORLD_SIZE - 10) / 2);
+            
+            // Avoid spawning too close to player
+            if (Math.abs(posX) < 10 && Math.abs(posZ) < 10) {
+                return false;
+            }
+            
+            // Random size
+            const width = 5 + Math.random() * 10;
+            const height = 5 + Math.random() * 15;
+            const depth = 5 + Math.random() * 10;
+            
+            // Check for overlaps with existing buildings
+            if (buildingOverlaps(posX, posZ, width, depth)) {
+                return false;
+            }
+            
+            // Continue with building creation
+            createBuildingAt(posX, posZ, width, height, depth);
+            return true;
+        }
+        
+        // Check if a building would overlap with any existing buildings
+        function buildingOverlaps(posX, posZ, width, depth) {
+            // Define the boundaries of the new building
+            const minX = posX - width/2 - 2; // Add 2 units buffer for spacing
+            const maxX = posX + width/2 + 2;
+            const minZ = posZ - depth/2 - 2;
+            const maxZ = posZ + depth/2 + 2;
+            
+            // Check against each existing building
+            for (const building of buildings) {
+                // Define the boundaries of the existing building
+                const buildingMinX = building.x - building.width/2;
+                const buildingMaxX = building.x + building.width/2;
+                const buildingMinZ = building.z - building.depth/2;
+                const buildingMaxZ = building.z + building.depth/2;
+                
+                // Check for overlap on both axes
+                if (maxX > buildingMinX && minX < buildingMaxX && 
+                    maxZ > buildingMinZ && minZ < buildingMaxZ) {
+                    return true; // Overlap detected
+                }
+            }
+            
+            return false; // No overlap
+        }
+        
+        // Create a building at the specified position
+        function createBuildingAt(posX, posZ, width, height, depth) {
+            // Store building information for future overlap checks
+            buildings.push({
+                x: posX,
+                z: posZ,
+                width: width,
+                depth: depth
+            });
+            
+            // Create building material with texture
+            const buildingTypes = [
+                {
+                    material: new THREE.MeshStandardMaterial({
+                        map: textures.bricks,
+                roughness: 0.7,
+                metalness: 0.2
+                    }),
+                    color: 0xdddddd
+                },
+                {
+                    material: new THREE.MeshStandardMaterial({
+                        map: textures.asphalt,
+                        roughness: 0.6,
+                        metalness: 0.3
+                    }),
+                    color: 0xbbbbbb
+                }
+            ];
+            
+            const buildingType = buildingTypes[Math.floor(Math.random() * buildingTypes.length)];
+            const buildingMaterial = buildingType.material;
+            buildingMaterial.color = new THREE.Color(buildingType.color);
+            
+            // Create building group
+            const buildingGroup = new THREE.Group();
+            buildingGroup.position.set(posX, height / 2, posZ);
+            scene.add(buildingGroup);
+            
+            // Create main building mesh
+            const buildingGeometry = new THREE.BoxGeometry(width, height, depth);
+            const building = new THREE.Mesh(buildingGeometry, buildingMaterial);
+            building.castShadow = true;
+            building.receiveShadow = true;
+            buildingGroup.add(building);
+            
+            // Rest of the building creation code (doors, etc.) remains the same
+            // ... existing code ...
+            
+            // Add a door to one side of the building
+            // Choose a random side
+            const doorSide = Math.floor(Math.random() * 4);
+            let doorPosition = new THREE.Vector3();
+            let doorRotation = 0;
+            
+            // Door dimensions
+            const doorWidth = 1.5;
+            const doorHeight = 2.5;
+            const doorThickness = 0.1;
+            
+            // Door material
+            const doorMaterial = new THREE.MeshStandardMaterial({
+                map: textures.wood,
+                roughness: 0.8,
+                metalness: 0.2,
+                color: 0x8B4513
+            });
+            
+            // Calculate door position based on the selected side
+            switch(doorSide) {
+                case 0: // Front
+                    doorPosition.set(0, -height/2 + doorHeight/2, depth/2 + doorThickness/2);
+                    doorRotation = 0;
+                    break;
+                case 1: // Right
+                    doorPosition.set(width/2 + doorThickness/2, -height/2 + doorHeight/2, 0);
+                    doorRotation = Math.PI / 2;
+                    break;
+                case 2: // Back
+                    doorPosition.set(0, -height/2 + doorHeight/2, -depth/2 - doorThickness/2);
+                    doorRotation = Math.PI;
+                    break;
+                case 3: // Left
+                    doorPosition.set(-width/2 - doorThickness/2, -height/2 + doorHeight/2, 0);
+                    doorRotation = Math.PI * 3 / 2;
+                    break;
+            }
+            
+            // Create and position door
+            const doorGeometry = new THREE.BoxGeometry(doorWidth, doorHeight, doorThickness);
+            const door = new THREE.Mesh(doorGeometry, doorMaterial);
+            door.position.copy(doorPosition);
+            door.rotation.y = doorRotation;
+            door.castShadow = true;
+            door.receiveShadow = true;
+            buildingGroup.add(door);
+            
+            // Create a doorframe
+            const frameWidth = 0.2;
+            const frameGeometry = new THREE.BoxGeometry(doorWidth + frameWidth*2, frameWidth, doorThickness*1.5);
+            const frameMaterial = new THREE.MeshStandardMaterial({
+                map: textures.wood,
+                roughness: 0.7,
+                metalness: 0.3,
+                color: 0x5C3317
+            });
+            
+            // Top frame
+            const topFrame = new THREE.Mesh(frameGeometry, frameMaterial);
+            topFrame.position.set(doorPosition.x, doorPosition.y + doorHeight/2 + frameWidth/2, doorPosition.z);
+            topFrame.rotation.y = doorRotation;
+            buildingGroup.add(topFrame);
+            
+            // Side frames
+            const sideFrameGeometry = new THREE.BoxGeometry(frameWidth, doorHeight, doorThickness*1.5);
+            
+            // Left frame
+            const leftFrame = new THREE.Mesh(sideFrameGeometry, frameMaterial);
+            leftFrame.position.set(
+                doorPosition.x - Math.cos(doorRotation) * (doorWidth/2 + frameWidth/2),
+                doorPosition.y,
+                doorPosition.z - Math.sin(doorRotation) * (doorWidth/2 + frameWidth/2)
+            );
+            leftFrame.rotation.y = doorRotation;
+            buildingGroup.add(leftFrame);
+            
+            // Right frame
+            const rightFrame = new THREE.Mesh(sideFrameGeometry, frameMaterial);
+            rightFrame.position.set(
+                doorPosition.x + Math.cos(doorRotation) * (doorWidth/2 + frameWidth/2),
+                doorPosition.y,
+                doorPosition.z + Math.sin(doorRotation) * (doorWidth/2 + frameWidth/2)
+            );
+            rightFrame.rotation.y = doorRotation;
+            buildingGroup.add(rightFrame);
+            
+            // Create steps in front of the door
+            const stepWidth = doorWidth * 1.2;
+            const stepDepth = 0.8;
+            const stepHeight = 0.2;
+            const stepGeometry = new THREE.BoxGeometry(stepWidth, stepHeight, stepDepth);
+            const stepMaterial = new THREE.MeshStandardMaterial({
+                map: textures.asphalt,
+                roughness: 0.9,
+                metalness: 0.1,
+                color: 0x888888
+            });
+            
+            // Position step in front of door
+            const stepPosition = new THREE.Vector3();
+            if (doorSide === 0) {
+                stepPosition.set(0, -height/2 + stepHeight/2, depth/2 + stepDepth/2 + doorThickness);
+            } else if (doorSide === 1) {
+                stepPosition.set(width/2 + stepDepth/2 + doorThickness, -height/2 + stepHeight/2, 0);
+            } else if (doorSide === 2) {
+                stepPosition.set(0, -height/2 + stepHeight/2, -depth/2 - stepDepth/2 - doorThickness);
+            } else if (doorSide === 3) {
+                stepPosition.set(-width/2 - stepDepth/2 - doorThickness, -height/2 + stepHeight/2, 0);
+            }
+            
+            const step = new THREE.Mesh(stepGeometry, stepMaterial);
+            step.position.copy(stepPosition);
+            step.rotation.y = doorRotation;
+            step.castShadow = true;
+            step.receiveShadow = true;
+            buildingGroup.add(step);
+            
+            // Calculate the world position of the door for zombie spawning
+            const doorWorldPosition = new THREE.Vector3();
+            // Calculate spawn position in front of the door
+            if (doorSide === 0) {
+                doorWorldPosition.set(posX, 0, posZ + depth/2 + 1);
+            } else if (doorSide === 1) {
+                doorWorldPosition.set(posX + width/2 + 1, 0, posZ);
+            } else if (doorSide === 2) {
+                doorWorldPosition.set(posX, 0, posZ - depth/2 - 1);
+            } else if (doorSide === 3) {
+                doorWorldPosition.set(posX - width/2 - 1, 0, posZ);
+            }
+            
+            // Add door position to the list of building doors for zombie spawning
+            buildingDoors.push({
+                position: doorWorldPosition,
+                rotation: doorRotation
+            });
+            
+            // Create building physics body
+            const buildingShape = new CANNON.Box(new CANNON.Vec3(width / 2, height / 2, depth / 2));
+            const buildingBody = new CANNON.Body({mass: 0});
+            buildingBody.addShape(buildingShape);
+            buildingBody.position.set(posX, height / 2, posZ);
+            world.addBody(buildingBody);
+            
+            obstacles.push({
+                mesh: buildingGroup,
+                body: buildingBody
+            });
+        }
+        
+        // Try to create a tree and return true if successful
+        function tryCreateTree() {
+            // Random position within world bounds (accounting for fence)
+            const posX = (Math.random() * (WORLD_SIZE - 12)) - ((WORLD_SIZE - 12) / 2);
+            const posZ = (Math.random() * (WORLD_SIZE - 12)) - ((WORLD_SIZE - 12) / 2);
+            
+            // Avoid spawning too close to player
+            if (Math.abs(posX) < 10 && Math.abs(posZ) < 10) {
+                return false;
+            }
+            
+            // Tree dimensions - larger than before
+            const trunkHeight = 3 + Math.random() * 3; // Taller trunks
+            const trunkRadius = 0.7 + Math.random() * 0.5; // Thicker trunks
+            const topRadius = 2.5 + Math.random() * 2; // Wider tops
+            const topHeight = 4 + Math.random() * 3; // Taller tops
+            
+            // Check for overlaps with buildings and other trees
+            if (treeOverlaps(posX, posZ, topRadius * 2)) {
+                return false;
+            }
+            
+            // Create the tree at this position
+            createTreeAt(posX, posZ, trunkHeight, trunkRadius, topRadius, topHeight);
+            return true;
+        }
+        
+        // Check if a tree would overlap with any buildings or other trees
+        function treeOverlaps(posX, posZ, treeWidth) {
+            // Define the boundaries of the new tree (use the width of the tree top which is wider)
+            const radius = treeWidth / 2;
+            const minX = posX - radius - 1; // Add 1 unit buffer
+            const maxX = posX + radius + 1;
+            const minZ = posZ - radius - 1;
+            const maxZ = posZ + radius + 1;
+            
+            // Check against each existing building
+            for (const building of buildings) {
+                // Define the boundaries of the existing building
+                const buildingMinX = building.x - building.width/2;
+                const buildingMaxX = building.x + building.width/2;
+                const buildingMinZ = building.z - building.depth/2;
+                const buildingMaxZ = building.z + building.depth/2;
+                
+                // Check for overlap on both axes
+                if (maxX > buildingMinX && minX < buildingMaxX && 
+                    maxZ > buildingMinZ && minZ < buildingMaxZ) {
+                    return true; // Overlap detected
+                }
+            }
+            
+            // Check against each existing tree
+            for (const tree of trees) {
+                // Calculate distance between tree centers
+                const dx = posX - tree.x;
+                const dz = posZ - tree.z;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+                
+                // If the distance is less than the sum of radii plus buffer, they overlap
+                if (distance < radius + tree.radius + 2) {
+                    return true; // Overlap detected
+                }
+            }
+            
+            return false; // No overlap
+        }
+        
+        // Create a tree at the specified position
+        function createTreeAt(posX, posZ, trunkHeight, trunkRadius, topRadius, topHeight) {
+            // Store tree information for future overlap checks
+            trees.push({
+                x: posX,
+                z: posZ,
+                radius: topRadius // Store the top radius which is the widest part
+            });
+            
+            // Create tree trunk with texture
+            const trunkGeometry = new THREE.CylinderGeometry(trunkRadius, trunkRadius * 1.2, trunkHeight, 8);
+            const trunkMaterial = new THREE.MeshStandardMaterial({
+                map: textures.bark,
+                roughness: 0.9,
+                metalness: 0.1,
+                color: 0x8B4513
+            });
+            const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+            trunk.position.set(posX, trunkHeight / 2, posZ);
+            trunk.castShadow = true;
+            trunk.receiveShadow = true;
+            scene.add(trunk);
+            
+            // Create tree top with texture
+            let topGeometry;
+            let topMaterial = new THREE.MeshStandardMaterial({
+                map: textures.leaves,
+                roughness: 0.8,
+                metalness: 0.1,
+                color: 0x228B22
+            });
+            
+            // Different tree top shapes for variety
+            const treeType = Math.floor(Math.random() * 3);
+            let treeTop; // Reference to store the tree top mesh or group
+            
+            if (treeType === 0) {
+                // Cone shaped
+                topGeometry = new THREE.ConeGeometry(topRadius, topHeight, 8);
+                treeTop = new THREE.Mesh(topGeometry, topMaterial);
+                treeTop.position.set(posX, trunkHeight + topHeight/2, posZ);
+                treeTop.castShadow = true;
+                treeTop.receiveShadow = true;
+                scene.add(treeTop);
+            } else if (treeType === 1) {
+                // Sphere shaped
+                topGeometry = new THREE.SphereGeometry(topRadius, 8, 8);
+                treeTop = new THREE.Mesh(topGeometry, topMaterial);
+                treeTop.position.set(posX, trunkHeight + topRadius*0.8, posZ);
+                treeTop.castShadow = true;
+                treeTop.receiveShadow = true;
+                scene.add(treeTop);
+            } else {
+                // Multiple layers
+                treeTop = new THREE.Group();
+                
+                const layer1 = new THREE.Mesh(
+                    new THREE.ConeGeometry(topRadius, topHeight * 0.6, 8),
+                    topMaterial
+                );
+                layer1.position.y = -topHeight * 0.15;
+                treeTop.add(layer1);
+                
+                const layer2 = new THREE.Mesh(
+                    new THREE.ConeGeometry(topRadius * 0.8, topHeight * 0.5, 8),
+                    topMaterial
+                );
+                layer2.position.y = topHeight * 0.15;
+                treeTop.add(layer2);
+                
+                const layer3 = new THREE.Mesh(
+                    new THREE.ConeGeometry(topRadius * 0.6, topHeight * 0.4, 8),
+                    topMaterial
+                );
+                layer3.position.y = topHeight * 0.4;
+                treeTop.add(layer3);
+                
+                treeTop.position.set(posX, trunkHeight + topHeight/2, posZ);
+                treeTop.castShadow = true;
+                treeTop.traverse(child => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true;
+                    }
+                });
+                scene.add(treeTop);
+            }
+            
+            // Create tree physics body
+            const trunkShape = new CANNON.Cylinder(trunkRadius, trunkRadius * 1.2, trunkHeight, 8);
+            const trunkBody = new CANNON.Body({mass: 0});
+            trunkBody.addShape(trunkShape);
+            trunkBody.position.set(posX, trunkHeight / 2, posZ);
+            world.addBody(trunkBody);
+            
+            obstacles.push({
+                mesh: trunk,
+                body: trunkBody,
+                treeTop: treeTop // Store reference to tree top for removal if needed
+            });
+        }
+        
+        // Try to create a lamp post and return true if successful
+        function tryCreateLampPost() {
+            // Random position within world bounds (accounting for fence)
+            const posX = (Math.random() * (WORLD_SIZE - 10)) - ((WORLD_SIZE - 10) / 2);
+            const posZ = (Math.random() * (WORLD_SIZE - 10)) - ((WORLD_SIZE - 10) / 2);
+            
+            // Avoid spawning too close to player
+            if (Math.abs(posX) < 10 && Math.abs(posZ) < 10) {
+                return false;
+            }
+            
+            // Lamp post dimensions
+            const poleRadius = 0.15;
+            const poleHeight = 6;
+            const lampRadius = 0.5;
+            
+            // Check for overlaps with buildings, trees, and other lamp posts
+            if (lampPostOverlaps(posX, posZ, poleRadius * 2 + 1)) {
+                return false;
+            }
+            
+            // Create the lamp post at this position
+            createLampPostAt(posX, posZ, poleHeight, poleRadius, lampRadius);
+            return true;
+        }
+        
+        // Check if a lamp post would overlap with buildings, trees, or other lamp posts
+        function lampPostOverlaps(posX, posZ, lampWidth) {
+            // Define the boundaries of the new lamp post
+            const radius = lampWidth / 2;
+            const minX = posX - radius;
+            const maxX = posX + radius;
+            const minZ = posZ - radius;
+            const maxZ = posZ + radius;
+            
+            // Check against each existing building
+            for (const building of buildings) {
+                // Define the boundaries of the existing building
+                const buildingMinX = building.x - building.width/2;
+                const buildingMaxX = building.x + building.width/2;
+                const buildingMinZ = building.z - building.depth/2;
+                const buildingMaxZ = building.z + building.depth/2;
+                
+                // Check for overlap on both axes
+                if (maxX > buildingMinX && minX < buildingMaxX && 
+                    maxZ > buildingMinZ && minZ < buildingMaxZ) {
+                    return true; // Overlap detected
+                }
+            }
+            
+            // Check against each existing tree
+            for (const tree of trees) {
+                // Calculate distance between tree centers
+                const dx = posX - tree.x;
+                const dz = posZ - tree.z;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+                
+                // If the distance is less than the sum of radii plus buffer, they overlap
+                if (distance < radius + tree.radius + 1) {
+                    return true; // Overlap detected
+                }
+            }
+            
+            // Check against each existing lamp post
+            for (const lamp of lampPosts) {
+                // Calculate distance between lamp centers
+                const dx = posX - lamp.x;
+                const dz = posZ - lamp.z;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+                
+                // If the distance is less than the sum of radii plus buffer, they overlap
+                if (distance < radius + lamp.radius + 10) { // Keep lamps far apart
+                    return true; // Overlap detected
+                }
+            }
+            
+            return false; // No overlap
+        }
+        
+        // Create a lamp post at the specified position
+        function createLampPostAt(posX, posZ, poleHeight, poleRadius, lampRadius) {
+            // Store lamp post information for future overlap checks
+            lampPosts.push({
+                x: posX,
+                z: posZ,
+                radius: poleRadius + 1
+            });
+            
+            // Create lamp post group
+            const lampPostGroup = new THREE.Group();
+            lampPostGroup.position.set(posX, 0, posZ);
+            scene.add(lampPostGroup);
+            
+            // Create the metal pole
+            const poleGeometry = new THREE.CylinderGeometry(poleRadius, poleRadius * 1.2, poleHeight, 8);
+            const poleMaterial = new THREE.MeshStandardMaterial({
+                color: 0x333333,
+                roughness: 0.7,
+                metalness: 0.8
+            });
+            const pole = new THREE.Mesh(poleGeometry, poleMaterial);
+            pole.position.y = poleHeight / 2;
+            pole.castShadow = true;
+            pole.receiveShadow = true;
+            lampPostGroup.add(pole);
+            
+            // Create a small horizontal arm at the top of the pole
+            const armLength = 1.2;
+            const armGeometry = new THREE.BoxGeometry(armLength, poleRadius * 2, poleRadius * 2);
+            const arm = new THREE.Mesh(armGeometry, poleMaterial);
+            arm.position.set(armLength / 2, poleHeight - poleRadius, 0);
+            arm.castShadow = true;
+            lampPostGroup.add(arm);
+            
+            // Create the lamp fixture
+            const lampGeometry = new THREE.SphereGeometry(lampRadius, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+            const lampMaterial = new THREE.MeshStandardMaterial({
+                color: 0x444444,
+                roughness: 0.5,
+                metalness: 0.7
+            });
+            const lamp = new THREE.Mesh(lampGeometry, lampMaterial);
+            lamp.position.set(armLength, poleHeight - poleRadius * 2, 0);
+            lamp.rotation.x = Math.PI;
+            lamp.castShadow = true;
+            lampPostGroup.add(lamp);
+            
+            // Create a glass cover for the lamp
+            const glassGeometry = new THREE.SphereGeometry(lampRadius * 0.9, 8, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+            const glassMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffffcc,
+                roughness: 0.2,
+                metalness: 0.1,
+                transparent: true,
+                opacity: 0.7,
+                emissive: 0xffffaa,
+                emissiveIntensity: 0.5
+            });
+            const glass = new THREE.Mesh(glassGeometry, glassMaterial);
+            glass.position.set(armLength, poleHeight - poleRadius * 2, 0);
+            glass.rotation.x = Math.PI;
+            lampPostGroup.add(glass);
+            
+            // Add a point light inside the lamp
+            const lightColor = 0xffffaa; // Warm yellow light
+            const light = new THREE.PointLight(lightColor, 1, 20); // Light with falloff
+            light.position.set(armLength, poleHeight - poleRadius * 3, 0);
+            
+            // Add custom properties for flickering
+            light.userData = {
+                baseIntensity: 1,
+                flickerSpeed: 0.05 + Math.random() * 0.05,
+                flickerIntensity: 0.1 + Math.random() * 0.2,
+                phase: Math.random() * Math.PI * 2 // Random starting phase
+            };
+            
+            lampPostGroup.add(light);
+            
+            // Create a small cone of light (visual effect)
+            const lightConeGeometry = new THREE.ConeGeometry(1.5, 2, 8, 1, true);
+            const lightConeMaterial = new THREE.MeshBasicMaterial({
+                color: lightColor,
+                transparent: true,
+                opacity: 0.1,
+                side: THREE.DoubleSide
+            });
+            const lightCone = new THREE.Mesh(lightConeGeometry, lightConeMaterial);
+            lightCone.position.set(armLength, poleHeight - poleRadius * 4, 0);
+            lightCone.rotation.x = Math.PI;
+            lampPostGroup.add(lightCone);
+            
+            // Create physics body for the lamp post
+            const poleShape = new CANNON.Cylinder(poleRadius, poleRadius * 1.2, poleHeight, 8);
+            const poleBody = new CANNON.Body({mass: 0});
+            poleBody.addShape(poleShape);
+            poleBody.position.set(posX, poleHeight / 2, posZ);
+            world.addBody(poleBody);
+            
+            // Add to obstacles
+            obstacles.push({
+                mesh: lampPostGroup,
+                body: poleBody,
+                light: light // Store reference to light for flickering
+            });
+        }
+        
+        // Function to animate lamp post lights (flickering effect)
+        function updateLampLights(delta) {
+            for (let i = 0; i < obstacles.length; i++) {
+                const obstacle = obstacles[i];
+                if (obstacle.light) {
+                    const light = obstacle.light;
+                    const flickerData = light.userData;
+                    
+                    // Update phase
+                    flickerData.phase += flickerData.flickerSpeed;
+                    
+                    // Calculate new intensity with noise
+                    const flicker = Math.sin(flickerData.phase) * flickerData.flickerIntensity;
+                    const noise = (Math.random() - 0.5) * 0.1; // Small random noise
+                    light.intensity = flickerData.baseIntensity + flicker + noise;
+                    
+                    // Ensure intensity stays within reasonable bounds
+                    light.intensity = Math.max(0.5, Math.min(1.5, light.intensity));
+                }
+            }
+        }
+        
+        function createZombie() {
+            // Don't spawn more zombies than needed for this wave
+            if (zombiesSpawned >= zombiesInWave) {
+                return;
+            }
+            
+            zombiesSpawned++;
+            
+            // If there are no building doors, fall back to the old random position method
+            if (buildingDoors.length === 0) {
+                spawnZombieAtRandomPosition();
+                return;
+            }
+            
+            // Choose a random door to spawn from
+            const doorIndex = Math.floor(Math.random() * buildingDoors.length);
+            const door = buildingDoors[doorIndex];
+            
+            // Get spawn position from door
+            const posX = door.position.x;
+            const posZ = door.position.z;
+            
+            // Create zombie group to hold all parts
+            const zombieGroup = new THREE.Group();
+            zombieGroup.position.set(posX, 1, posZ);
+            zombieGroup.scale.set(0.5, 0.5, 0.5); // Reduce the zombie size by half
+            // Set initial rotation to face away from the door
+            zombieGroup.rotation.y = door.rotation + Math.PI;
+            scene.add(zombieGroup);
+            
+            // Create zombie body
+            const bodyGeometry = new THREE.BoxGeometry(1, 1.5, 0.5);
+            const bodyMaterial = new THREE.MeshStandardMaterial({
+                color: 0x336633,
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            const zombieBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            zombieBody.position.y = 0.75;
+            zombieBody.castShadow = true;
+            zombieGroup.add(zombieBody);
+            
+            // Create zombie head
+            const headGeometry = new THREE.SphereGeometry(0.4, 8, 8);
+            // Create a decomposed look with a darker, mottled color
+            const headMaterial = new THREE.MeshStandardMaterial({
+                color: 0x2a4d2a,
+                roughness: 1.0,
+                metalness: 0.0
+            });
+            const zombieHead = new THREE.Mesh(headGeometry, headMaterial);
+            zombieHead.position.y = 1.75;
+            zombieHead.castShadow = true;
+            zombieGroup.add(zombieHead);
+            
+            // Create zombie eyes (glowing red)
+            const eyeGeometry = new THREE.SphereGeometry(0.08, 8, 8);
+            const eyeMaterial = new THREE.MeshStandardMaterial({
+                color: 0xff0000,
+                emissive: 0xff0000,
+                emissiveIntensity: 0.7
+            });
+            
+            // Left eye - slightly sunken and asymmetric for horror effect
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(0.15, 1.8, 0.35);
+            leftEye.scale.y = 0.5 + Math.random() * 0.5; // Randomly squished eyes
+            zombieGroup.add(leftEye);
+            
+            // Right eye - slightly sunken and asymmetric for horror effect
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            rightEye.position.set(-0.15, 1.8, 0.35);
+            rightEye.scale.y = 0.5 + Math.random() * 0.5; // Randomly squished eyes
+            zombieGroup.add(rightEye);
+            
+            // Add mouth - jagged line
+            const mouthGeometry = new THREE.BoxGeometry(0.3, 0.05, 0.05);
+            const mouthMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
+            mouth.position.set(0, 1.65, 0.4);
+            zombieGroup.add(mouth);
+            
+            // Create zombie arms
+            const armGeometry = new THREE.BoxGeometry(0.25, 0.8, 0.25);
+            const armMaterial = new THREE.MeshStandardMaterial({
+                color: 0x336633,
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            
+            // Left arm
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(0.6, 0.8, 0);
+            leftArm.castShadow = true;
+            zombieGroup.add(leftArm);
+            
+            // Right arm
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(-0.6, 0.8, 0);
+            rightArm.castShadow = true;
+            zombieGroup.add(rightArm);
+            
+            // Create zombie legs
+            const legGeometry = new THREE.BoxGeometry(0.3, 0.8, 0.3);
+            const legMaterial = new THREE.MeshStandardMaterial({
+                color: 0x224422,
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            
+            // Left leg
+            const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+            leftLeg.position.set(0.2, -0.4, 0);
+            leftLeg.castShadow = true;
+            zombieGroup.add(leftLeg);
+            
+            // Right leg
+            const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+            rightLeg.position.set(-0.2, -0.4, 0);
+            rightLeg.castShadow = true;
+            zombieGroup.add(rightLeg);
+            
+            // Make all child meshes part of the zombie's userData for hit detection
+            zombieGroup.traverse(child => {
+                if (child.isMesh) {
+                    child.userData.isZombiePart = true;
+                    child.userData.zombieGroup = zombieGroup;
+                }
+            });
+            
+            // Create zombie physics body
+            const zombieShape = new CANNON.Box(new CANNON.Vec3(0.25, 0.5, 0.125)); // Half size for physics too
+            const zombieBody3D = new CANNON.Body({mass: 50});
+            zombieBody3D.addShape(zombieShape);
+            zombieBody3D.position.set(posX, 1, posZ);
+            world.addBody(zombieBody3D);
+            
+            // Add zombie to list with animation parameters
+            zombies.push({
+                group: zombieGroup,
+                body: zombieBody3D,
+                health: 100,
+                speed: 2 + Math.random() * wave * 0.2, // Increase speed as waves progress
+                attackCooldown: 0,
+                // Animation parameters for arms
+                leftArm: leftArm,
+                rightArm: rightArm,
+                armAnimation: {
+                    time: Math.random() * Math.PI * 2, // Random start time
+                    speed: 0.1 + Math.random() * 0.1    // Random animation speed
+                },
+                // Pathfinding parameters
+                waypoint: null,
+                waypointTimer: 0
+            });
+            
+            // Play zombie sound
+            zombieGroanSound.play();
+            
+            // Schedule next zombie spawn
+            scheduleNextZombieSpawn();
+
+            // Chance to spawn a power-up when spawning zombies
+            if (Math.random() < 0.2 && powerUps.length < 3) { // 20% chance, max 3 at a time
+                spawnPowerUp();
+            }
+        }
+        
+        function spawnZombieAtRandomPosition() {
+            // Random position around the player, but not too close and within the fenced area
+            let posX, posZ;
+            const maxDistance = WORLD_SIZE / 2 - 5; // Keep zombies inside the fence with some margin
+            const minDistance = 20; // Don't spawn too close to player
+            
+            // Try to find a valid spawn position
+            let validPosition = false;
+            let attempts = 0;
+            
+            while (!validPosition && attempts < 10) {
+                const angle = Math.random() * Math.PI * 2;
+                const distance = minDistance + Math.random() * (maxDistance - minDistance);
+                posX = player.position.x + Math.cos(angle) * distance;
+                posZ = player.position.z + Math.sin(angle) * distance;
+                
+                // Check if position is within bounds
+                if (Math.abs(posX) < maxDistance && Math.abs(posZ) < maxDistance) {
+                    validPosition = true;
+                }
+                attempts++;
+            }
+            
+            // If couldn't find valid position after attempts, just place at a random edge
+            if (!validPosition) {
+                const edge = Math.floor(Math.random() * 4);
+                const offset = Math.random() * WORLD_SIZE - (WORLD_SIZE / 2);
+                
+                switch(edge) {
+                    case 0: // North edge
+                        posX = offset;
+                        posZ = maxDistance - 2;
+                        break;
+                    case 1: // East edge
+                        posX = maxDistance - 2;
+                        posZ = offset;
+                        break;
+                    case 2: // South edge
+                        posX = offset;
+                        posZ = -maxDistance + 2;
+                        break;
+                    case 3: // West edge
+                        posX = -maxDistance + 2;
+                        posZ = offset;
+                        break;
+                }
+            }
+            
+            // Create zombie at this position (the rest of the logic is the same as in createZombie)
+            // ... and we would duplicate the zombie creation code here
+            // For brevity, we'll actually call createZombie again with the positions set in surrounding scope
+            
+            // Create zombie group to hold all parts
+            const zombieGroup = new THREE.Group();
+            zombieGroup.position.set(posX, 1, posZ);
+            zombieGroup.scale.set(0.5, 0.5, 0.5); // Reduce the zombie size by half
+            scene.add(zombieGroup);
+            
+            // Create zombie body
+            const bodyGeometry = new THREE.BoxGeometry(1, 1.5, 0.5);
+            const bodyMaterial = new THREE.MeshStandardMaterial({
+                color: 0x336633,
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            const zombieBody = new THREE.Mesh(bodyGeometry, bodyMaterial);
+            zombieBody.position.y = 0.75;
+            zombieBody.castShadow = true;
+            zombieGroup.add(zombieBody);
+            
+            // Create zombie head
+            const headGeometry = new THREE.SphereGeometry(0.4, 8, 8);
+            // Create a decomposed look with a darker, mottled color
+            const headMaterial = new THREE.MeshStandardMaterial({
+                color: 0x2a4d2a,
+                roughness: 1.0,
+                metalness: 0.0
+            });
+            const zombieHead = new THREE.Mesh(headGeometry, headMaterial);
+            zombieHead.position.y = 1.75;
+            zombieHead.castShadow = true;
+            zombieGroup.add(zombieHead);
+            
+            // Create zombie eyes (glowing red)
+            const eyeGeometry = new THREE.SphereGeometry(0.08, 8, 8);
+            const eyeMaterial = new THREE.MeshStandardMaterial({
+                color: 0xff0000,
+                emissive: 0xff0000,
+                emissiveIntensity: 0.7
+            });
+            
+            // Left eye - slightly sunken and asymmetric for horror effect
+            const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            leftEye.position.set(0.15, 1.8, 0.35);
+            leftEye.scale.y = 0.5 + Math.random() * 0.5; // Randomly squished eyes
+            zombieGroup.add(leftEye);
+            
+            // Right eye - slightly sunken and asymmetric for horror effect
+            const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+            rightEye.position.set(-0.15, 1.8, 0.35);
+            rightEye.scale.y = 0.5 + Math.random() * 0.5; // Randomly squished eyes
+            zombieGroup.add(rightEye);
+            
+            // Add mouth - jagged line
+            const mouthGeometry = new THREE.BoxGeometry(0.3, 0.05, 0.05);
+            const mouthMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const mouth = new THREE.Mesh(mouthGeometry, mouthMaterial);
+            mouth.position.set(0, 1.65, 0.4);
+            zombieGroup.add(mouth);
+            
+            // Create zombie arms
+            const armGeometry = new THREE.BoxGeometry(0.25, 0.8, 0.25);
+            const armMaterial = new THREE.MeshStandardMaterial({
+                color: 0x336633,
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            
+            // Left arm
+            const leftArm = new THREE.Mesh(armGeometry, armMaterial);
+            leftArm.position.set(0.6, 0.8, 0);
+            leftArm.castShadow = true;
+            zombieGroup.add(leftArm);
+            
+            // Right arm
+            const rightArm = new THREE.Mesh(armGeometry, armMaterial);
+            rightArm.position.set(-0.6, 0.8, 0);
+            rightArm.castShadow = true;
+            zombieGroup.add(rightArm);
+            
+            // Create zombie legs
+            const legGeometry = new THREE.BoxGeometry(0.3, 0.8, 0.3);
+            const legMaterial = new THREE.MeshStandardMaterial({
+                color: 0x224422,
+                roughness: 0.9,
+                metalness: 0.1
+            });
+            
+            // Left leg
+            const leftLeg = new THREE.Mesh(legGeometry, legMaterial);
+            leftLeg.position.set(0.2, -0.4, 0);
+            leftLeg.castShadow = true;
+            zombieGroup.add(leftLeg);
+            
+            // Right leg
+            const rightLeg = new THREE.Mesh(legGeometry, legMaterial);
+            rightLeg.position.set(-0.2, -0.4, 0);
+            rightLeg.castShadow = true;
+            zombieGroup.add(rightLeg);
+            
+            // Make all child meshes part of the zombie's userData for hit detection
+            zombieGroup.traverse(child => {
+                if (child.isMesh) {
+                    child.userData.isZombiePart = true;
+                    child.userData.zombieGroup = zombieGroup;
+                }
+            });
+            
+            // Create zombie physics body
+            const zombieShape = new CANNON.Box(new CANNON.Vec3(0.25, 0.5, 0.125)); // Half size for physics too
+            const zombieBody3D = new CANNON.Body({mass: 50});
+            zombieBody3D.addShape(zombieShape);
+            zombieBody3D.position.set(posX, 1, posZ);
+            world.addBody(zombieBody3D);
+            
+            // Add zombie to list with animation parameters
+            zombies.push({
+                group: zombieGroup,
+                body: zombieBody3D,
+                health: 100,
+                speed: 2 + Math.random() * wave * 0.2, // Increase speed as waves progress
+                attackCooldown: 0,
+                // Animation parameters for arms
+                leftArm: leftArm,
+                rightArm: rightArm,
+                armAnimation: {
+                    time: Math.random() * Math.PI * 2, // Random start time
+                    speed: 0.1 + Math.random() * 0.1    // Random animation speed
+                },
+                // Pathfinding parameters
+                waypoint: null,
+                waypointTimer: 0
+            });
+        }
+        
+        function spawnPowerUp() {
+            // Random position within reasonable distance of player
+            const angle = Math.random() * Math.PI * 2;
+            const distance = 10 + Math.random() * 15;
+            const posX = player.position.x + Math.cos(angle) * distance;
+            const posZ = player.position.z + Math.sin(angle) * distance;
+            
+            // Choose random power-up type
+            const powerUpTypes = Object.values(POWER_UP_TYPES);
+            const powerUpType = powerUpTypes[Math.floor(Math.random() * powerUpTypes.length)];
+            
+            // Create power-up mesh (floating cube)
+            const powerUpGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+            const powerUpMaterial = new THREE.MeshStandardMaterial({
+                color: powerUpType.color,
+                emissive: powerUpType.color,
+                emissiveIntensity: 0.5,
+                transparent: true,
+                opacity: 0.8
+            });
+            const powerUpMesh = new THREE.Mesh(powerUpGeometry, powerUpMaterial);
+            powerUpMesh.position.set(posX, 1, posZ);
+            powerUpMesh.castShadow = true;
+            scene.add(powerUpMesh);
+            
+            // Add power-up to list
+            powerUps.push({
+                mesh: powerUpMesh,
+                type: powerUpType,
+                position: new THREE.Vector3(posX, 1, posZ),
+                rotationSpeed: 0.02 + Math.random() * 0.03,
+                bounceSpeed: 0.005 + Math.random() * 0.005,
+                bounceHeight: 0.3 + Math.random() * 0.2,
+                initialY: 1
+            });
+        }
+        
+        function collectPowerUp(powerUp) {
+            // Remove power-up from scene
+            scene.remove(powerUp.mesh);
+            
+            // Remove from list
+            const index = powerUps.indexOf(powerUp);
+            if (index > -1) {
+                powerUps.splice(index, 1);
+            }
+            
+            // Remove current power-up if exists
+            if (activePowerUp) {
+                activePowerUp.type.remove();
+            }
+            
+            // Apply new power-up
+            activePowerUp = {
+                type: powerUp.type,
+                timeLeft: powerUp.type.duration
+            };
+            
+            powerUp.type.apply();
+            
+            // Show power-up notification
+            const waveInfo = document.getElementById('waveInfo');
+            waveInfo.innerText = powerUp.type.name + ' activated!';
+            waveInfo.style.opacity = 1;
+            
+            // Update power-up indicator
+            updatePowerUpIndicator();
+            
+            setTimeout(() => {
+                waveInfo.style.opacity = 0;
+            }, 2000);
+        }
+        
+        function updatePowerUps(delta) {
+            // Update floating power-ups
+            for (let i = 0; i < powerUps.length; i++) {
+                const powerUp = powerUps[i];
+                
+                // Make power-up rotate
+                powerUp.mesh.rotation.y += powerUp.rotationSpeed;
+                
+                // Make power-up bounce
+                const time = Date.now() * powerUp.bounceSpeed;
+                powerUp.mesh.position.y = powerUp.initialY + Math.sin(time) * powerUp.bounceHeight;
+                
+                // Check if player is close enough to collect
+                const distanceToPlayer = new THREE.Vector3(
+                    player.position.x - powerUp.mesh.position.x,
+                    player.position.y - powerUp.mesh.position.y,
+                    player.position.z - powerUp.mesh.position.z
+                ).length();
+                
+                if (distanceToPlayer < 2) {
+                    collectPowerUp(powerUp);
+                }
+            }
+            
+            // Update active power-up duration
+            if (activePowerUp) {
+                activePowerUp.timeLeft -= delta;
+                
+                // Update power-up indicator
+                updatePowerUpIndicator();
+                
+                if (activePowerUp.timeLeft <= 0) {
+                    // Power-up expired
+                    activePowerUp.type.remove();
+                    activePowerUp = null;
+                    
+                    // Hide power-up indicator
+                    document.getElementById('powerUpIndicator').style.opacity = 0;
+                    
+                    // Show notification
+                    const waveInfo = document.getElementById('waveInfo');
+                    waveInfo.innerText = 'Power-up expired';
+                    waveInfo.style.opacity = 1;
+                    
+                    setTimeout(() => {
+                        waveInfo.style.opacity = 0;
+                    }, 2000);
+                }
+            }
+        }
+        
+        function updatePowerUpIndicator() {
+            if (!activePowerUp) return;
+            
+            const indicator = document.getElementById('powerUpIndicator');
+            indicator.innerText = `${activePowerUp.type.name}: ${Math.ceil(activePowerUp.timeLeft)}s`;
+            
+            // Set the color to match the power-up
+            indicator.style.color = '#' + activePowerUp.type.color.toString(16).padStart(6, '0');
+            indicator.style.opacity = 1;
+        }
+        
+        function shoot() {
+            if (!gameStarted || !controls.enabled || isReloading) return;
+            
+            const now = Date.now();
+            if (now - lastShootTime < shootCooldown) return;
+            lastShootTime = now;
+            
+            // Check if we have active infinite ammo power-up
+            const hasInfiniteAmmo = activePowerUp && activePowerUp.type === POWER_UP_TYPES.INFINITE_AMMO;
+            
+            if (ammo <= 0 && !hasInfiniteAmmo) {
+                // Show reload message
+                const reloadMsg = document.getElementById('reloadMessage');
+                reloadMsg.style.opacity = 1;
+                setTimeout(() => {
+                    reloadMsg.style.opacity = 0;
+                }, 1500);
+                return;
+            }
+            
+            // Decrease ammo if not infinite
+            if (!hasInfiniteAmmo) {
+                ammo--;
+                updateAmmoDisplay();
+            }
+            
+            // Play shoot sound
+            shootSound.play();
+            
+            // Check if shotgun power-up is active
+            if (activePowerUp && activePowerUp.type === POWER_UP_TYPES.SHOTGUN) {
+                // Shotgun blast (5 bullets in a spread)
+                for (let i = 0; i < 5; i++) {
+                    createBullet(i - 2); // -2, -1, 0, 1, 2 spread
+                }
+            } else {
+                // Normal single bullet
+                createBullet(0);
+            }
+            
+            // Add muzzle flash
+            createMuzzleFlash();
+        }
+        
+        function createBullet(spreadFactor) {
+            // Create bullet visual effect
+            const bulletGeometry = new THREE.SphereGeometry(0.05, 8, 8);
+            const bulletMaterial = new THREE.MeshBasicMaterial({color: 0xffff00});
+            const bullet = new THREE.Mesh(bulletGeometry, bulletMaterial);
+            
+            // Position bullet at gun tip
+            bullet.position.set(0, 0, 0);
+            bullet.position.applyMatrix4(gunModel.matrixWorld);
+            
+            // Calculate bullet direction from camera with spread
+            const bulletDirection = new THREE.Vector3(0, 0, -1);
+            bulletDirection.applyQuaternion(camera.quaternion);
+            
+            // Add spread if needed (for shotgun)
+            if (spreadFactor !== 0) {
+                const spread = 0.1 * spreadFactor;
+                bulletDirection.x += spread;
+                bulletDirection.y += Math.random() * 0.05 - 0.025; // Small random vertical spread
+            }
+            
+            bulletDirection.normalize();
+            
+            // Add bullet to scene
+            scene.add(bullet);
+            
+            // Use raycasting to detect hits instantly
+            const raycaster = new THREE.Raycaster(camera.position, bulletDirection);
+            // Get all objects in the scene that could be zombie parts
+            let zombieParts = [];
+            scene.traverse(function(object) {
+                if (object.isMesh && object.userData.isZombiePart) {
+                    zombieParts.push(object);
+                }
+            });
+            
+            const intersects = raycaster.intersectObjects(zombieParts);
+            
+            if (intersects.length > 0) {
+                // Get the hit zombie part
+                const hitPart = intersects[0].object;
+                // Find the zombie that owns this part
+                const zombieGroup = hitPart.userData.zombieGroup;
+                const hitZombie = zombies.find(z => z.group === zombieGroup);
+                
+                if (hitZombie) {
+                    // Reduce zombie health (more damage for shotgun at close range)
+                    let damage = 50;
+                    if (activePowerUp && activePowerUp.type === POWER_UP_TYPES.SHOTGUN) {
+                        const distance = intersects[0].distance;
+                        if (distance < 5) {
+                            damage = 100; // One-shot kill at close range with shotgun
+                        }
+                    }
+                    
+                    hitZombie.health -= damage;
+                    
+                    // Check if zombie is dead
+                    if (hitZombie.health <= 0) {
+                        killZombie(hitZombie);
+                    }
+                }
+            }
+            
+            // Add bullet to list with direction for visual effect
+            bullets.push({
+                mesh: bullet,
+                direction: bulletDirection,
+                speed: 1,
+                timeToLive: 2 // seconds
+            });
+        }
+        
+        function createMuzzleFlash() {
+            const flashGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+            const flashMaterial = new THREE.MeshBasicMaterial({
+                color: 0xffff00,
+                transparent: true,
+                opacity: 1
+            });
+            
+            const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+            flash.position.set(0, 0, -0.6);
+            flash.scale.set(1, 1, 3);
+            gunModel.add(flash);
+            
+            // Animate muzzle flash
+            let opacity = 1;
+            const fadeOut = setInterval(() => {
+                opacity -= 0.1;
+                flashMaterial.opacity = opacity;
+                
+                if (opacity <= 0) {
+                    clearInterval(fadeOut);
+                    gunModel.remove(flash);
+                    flash.geometry.dispose();
+                    flashMaterial.dispose();
+                }
+            }, 20);
+        }
+        
+        function killZombie(zombie) {
+            // Remove zombie from scene and physics world
+            scene.remove(zombie.group);
+            world.remove(zombie.body);
+            
+            // Remove zombie from list
+            const index = zombies.indexOf(zombie);
+            if (index > -1) {
+                zombies.splice(index, 1);
+            }
+            
+            // Increase score
+            score += 10 * wave;
+            document.getElementById('score').innerText = 'Score: ' + score;
+            
+            // Increment killed zombies count
+            zombiesKilled++;
+            
+            // Check if wave is complete
+            if (zombiesKilled >= zombiesInWave) {
+                startNextWave();
+            }
+        }
+        
+        function startNextWave() {
+            wave++;
+            zombiesInWave = 5 + (wave * 3);
+            zombiesSpawned = 0;
+            zombiesKilled = 0;
+            
+            // Show wave info
+            const waveInfo = document.getElementById('waveInfo');
+            waveInfo.innerText = 'Wave ' + wave;
+            waveInfo.style.opacity = 1;
+            
+            // Wait for a few seconds before starting next wave
+            waveTimeout = setTimeout(() => {
+                waveInfo.style.opacity = 0;
+                scheduleNextZombieSpawn();
+            }, 5000);
+        }
+        
+        function scheduleNextZombieSpawn() {
+            if (zombiesSpawned < zombiesInWave) {
+                setTimeout(createZombie, ZOMBIE_SPAWN_INTERVAL);
+            }
+        }
+        
+        function updatePlayer(delta) {
+            if (!controls.enabled) return;
+            
+            // Calculate movement direction based on controls
+            const direction = controls.direction;
+            direction.z = Number(controls.moveForward) - Number(controls.moveBackward);
+            direction.x = Number(controls.moveRight) - Number(controls.moveLeft);
+            direction.normalize();
+            
+            // Apply velocity based on direction - FIXED WASD MOVEMENT
+            const moveSpeed = 10;
+            if (controls.moveForward || controls.moveBackward) {
+                // Fixed forward/backward movement
+                const forwardVector = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+                const zDirection = controls.moveForward ? -1 : 1; // Inverted to fix controls
+                player.velocity.x += forwardVector.x * moveSpeed * zDirection * delta;
+                player.velocity.z += forwardVector.z * moveSpeed * zDirection * delta;
+            }
+            
+            if (controls.moveLeft || controls.moveRight) {
+                // Fixed left/right movement
+                const rightVector = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+                const xDirection = controls.moveRight ? 1 : -1; // Correct direction
+                player.velocity.x += rightVector.x * moveSpeed * xDirection * delta;
+                player.velocity.z += rightVector.z * moveSpeed * xDirection * delta;
+            }
+            
+            // Faster downward acceleration when falling
+            if (controls.isJumping && player.velocity.y < 0) {
+                // Apply additional downward force when falling
+                player.velocity.y -= 15 * delta; // Increased gravity effect when falling
+            }
+            
+            // Ground check - additional check in case the collision event didn't trigger
+            const raycaster = new THREE.Raycaster(
+                new THREE.Vector3(player.position.x, player.position.y, player.position.z),
+                new THREE.Vector3(0, -1, 0)
+            );
+            const intersects = raycaster.intersectObjects(scene.children);
+            
+            // If there's something below the player within a short distance
+            if (intersects.length > 0 && intersects[0].distance < 0.6) {
+                controls.canJump = true;
+                controls.isJumping = false;
+            }
+            
+            // Update camera position based on player physics body
+            camera.position.x = player.position.x;
+            camera.position.y = player.position.y;
+            camera.position.z = player.position.z;
+            
+            // Update player mesh position
+            playerMesh.position.copy(player.position);
+            
+            // Ensure camera remains level (no tilting)
+            camera.up.set(0, 1, 0);
+        }
+        
+        function updateZombies(delta) {
+            for (let i = 0; i < zombies.length; i++) {
+                const zombie = zombies[i];
+                
+                // Calculate direction to player
+                const toPlayer = new THREE.Vector3();
+                toPlayer.subVectors(new THREE.Vector3(player.position.x, 0, player.position.z), 
+                                    new THREE.Vector3(zombie.body.position.x, 0, zombie.body.position.z));
+                
+                // Get distance to player
+                const distanceToPlayer = toPlayer.length();
+                toPlayer.normalize();
+                
+                // Initialize steering direction as the direct path to player
+                let steeringDirection = new THREE.Vector3().copy(toPlayer);
+                
+                // Check if zombie has waypoints and update them
+                updateZombieWaypoints(zombie);
+                
+                // If zombie has an active waypoint, steer towards it instead of directly to player
+                if (zombie.waypoint) {
+                    const toWaypoint = new THREE.Vector3();
+                    toWaypoint.subVectors(zombie.waypoint, new THREE.Vector3(zombie.body.position.x, 0, zombie.body.position.z));
+                    const distanceToWaypoint = toWaypoint.length();
+                    toWaypoint.normalize();
+                    
+                    // If reached waypoint, clear it
+                    if (distanceToWaypoint < WAYPOINT_REACHED_THRESHOLD) {
+                        zombie.waypoint = null;
+                        zombie.waypointTimer = 0;
+                        // Continue to next waypoint or back to following player
+                    } else {
+                        // Steer towards waypoint instead of player
+                        steeringDirection = toWaypoint;
+                    }
+                } else {
+                    // No waypoint, check for obstacles and create waypoints if needed
+                    if (!zombie.waypointTimer || zombie.waypointTimer <= 0) {
+                        detectObstaclesAndCreateWaypoints(zombie, toPlayer);
+                        // Set a timer before checking for obstacles again to avoid constant checks
+                        zombie.waypointTimer = 0.5; // 0.5 seconds
+                    } else {
+                        zombie.waypointTimer -= delta;
+                    }
+                }
+                
+                // Move zombie towards steering direction
+                zombie.body.velocity.x = steeringDirection.x * zombie.speed;
+                zombie.body.velocity.z = steeringDirection.z * zombie.speed;
+                
+                // Update zombie mesh position
+                zombie.group.position.copy(zombie.body.position);
+                
+                // Make zombie look in the direction it's moving
+                if (zombie.body.velocity.x !== 0 || zombie.body.velocity.z !== 0) {
+                    const velocityDirection = new THREE.Vector3(zombie.body.velocity.x, 0, zombie.body.velocity.z).normalize();
+                    const targetPosition = new THREE.Vector3().copy(zombie.group.position).add(velocityDirection);
+                    zombie.group.lookAt(targetPosition);
+                } else {
+                    // If not moving, look at player
+                    zombie.group.lookAt(player.position.x, zombie.group.position.y, player.position.z);
+                }
+                
+                // Animate zombie arms
+                if (zombie.leftArm && zombie.rightArm) {
+                    // Update animation time
+                    zombie.armAnimation.time += delta * zombie.armAnimation.speed * zombie.speed;
+                    
+                    // Calculate arm swing based on sine wave
+                    const leftArmRotation = Math.sin(zombie.armAnimation.time) * 0.5;
+                    const rightArmRotation = Math.sin(zombie.armAnimation.time + Math.PI) * 0.5; // Opposite phase
+                    
+                    // Apply rotations to create walking animation
+                    zombie.leftArm.rotation.x = leftArmRotation;
+                    zombie.rightArm.rotation.x = rightArmRotation;
+                    
+                    // Add slight random rotation for more horror effect
+                    zombie.leftArm.rotation.z = Math.sin(zombie.armAnimation.time * 0.5) * 0.1;
+                    zombie.rightArm.rotation.z = Math.sin(zombie.armAnimation.time * 0.5 + Math.PI) * 0.1;
+                }
+                
+                // Check if zombie is close enough to attack
+                if (distanceToPlayer < 2) {
+                    // Attack player if cooldown is over
+                    zombie.attackCooldown -= delta;
+                    if (zombie.attackCooldown <= 0) {
+                        attackPlayer(10);
+                        zombie.attackCooldown = 1; // 1 second cooldown
+                    }
+                }
+            }
+        }
+        
+        // Function to detect obstacles and create waypoints for zombie pathfinding
+        function detectObstaclesAndCreateWaypoints(zombie, directionToPlayer) {
+            // Cast rays in different directions to detect obstacles
+            const zombiePosition = new THREE.Vector3(zombie.body.position.x, 0.5, zombie.body.position.z);
+            
+            // Create main ray cast towards player to see if there's a direct path
+            const directRaycaster = new THREE.Raycaster(zombiePosition, directionToPlayer, 0, OBSTACLE_DETECTION_RADIUS * 2);
+            const directHits = directRaycaster.intersectObjects(obstacles.map(o => o.mesh));
+            
+            // If there's a direct path to player with no obstacles, no need for waypoints
+            if (directHits.length === 0) {
+                return;
+            }
+            
+            // There's an obstacle, we need to find a way around it
+            // Cast rays at angles to find the edge of the obstacle
+            const numProbes = 12; // Number of rays to cast in a fan pattern
+            const maxAngle = Math.PI / 1.5; // 120 degrees fan
+            
+            let bestDirection = null;
+            let shortestDistance = Infinity;
+            
+            for (let i = -numProbes/2; i <= numProbes/2; i++) {
+                if (i === 0) continue; // Skip the direct path as we already know there's an obstacle
+                
+                // Calculate angle offset
+                const angleOffset = (i / (numProbes/2)) * maxAngle;
+                
+                // Calculate direction for this probe
+                const probeDirection = new THREE.Vector3().copy(directionToPlayer);
+                
+                // Rotate around Y axis by angle offset
+                const rotationMatrix = new THREE.Matrix4().makeRotationY(angleOffset);
+                probeDirection.applyMatrix4(rotationMatrix);
+                
+                // Cast ray in this direction
+                const probeRaycaster = new THREE.Raycaster(zombiePosition, probeDirection, 0, OBSTACLE_DETECTION_RADIUS * 3);
+                const probeHits = probeRaycaster.intersectObjects(obstacles.map(o => o.mesh));
+                
+                // If this direction is clear or hits something far away
+                if (probeHits.length === 0 || probeHits[0].distance > OBSTACLE_DETECTION_RADIUS * 1.5) {
+                    // Record this as a potential path around the obstacle
+                    const distanceEstimate = Math.abs(angleOffset); // Prefer directions closer to the direct path
+                    
+                    if (distanceEstimate < shortestDistance) {
+                        shortestDistance = distanceEstimate;
+                        bestDirection = probeDirection;
+                    }
+                }
+            }
+            
+            // If we found a clear path direction, create a waypoint
+            if (bestDirection) {
+                // Calculate waypoint position at a distance from zombie in the best direction
+                const waypointDistance = OBSTACLE_DETECTION_RADIUS * 1.2;
+                const waypoint = new THREE.Vector3()
+                    .copy(zombiePosition)
+                    .add(bestDirection.multiplyScalar(waypointDistance));
+                
+                // Set the waypoint
+                zombie.waypoint = waypoint;
+                
+                // Debug visualization (remove in production)
+                /*
+                if (zombie.debugWaypoint) {
+                    scene.remove(zombie.debugWaypoint);
+                }
+                const waypointGeometry = new THREE.SphereGeometry(0.5, 8, 8);
+                const waypointMaterial = new THREE.MeshBasicMaterial({color: 0xff0000});
+                zombie.debugWaypoint = new THREE.Mesh(waypointGeometry, waypointMaterial);
+                zombie.debugWaypoint.position.copy(waypoint);
+                scene.add(zombie.debugWaypoint);
+                */
+            }
+        }
+        
+        // Update zombie waypoints and check if they've been reached
+        function updateZombieWaypoints(zombie) {
+            // Initialize waypoint properties if they don't exist
+            if (zombie.waypoint === undefined) {
+                zombie.waypoint = null;
+                zombie.waypointTimer = 0;
+            }
+        }
+        
+        function updateBullets(delta) {
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                const bullet = bullets[i];
+                
+                // Move bullet
+                bullet.mesh.position.add(bullet.direction.clone().multiplyScalar(bullet.speed));
+                
+                // Decrease time to live
+                bullet.timeToLive -= delta;
+                
+                // Remove bullet if it's too old
+                if (bullet.timeToLive <= 0) {
+                    scene.remove(bullet.mesh);
+                    bullets.splice(i, 1);
+                }
+            }
+        }
+        
+        function attackPlayer(damage) {
+            if (!gameStarted) return;
+            
+            // Reduce player health
+            playerHealth -= damage;
+            
+            // Update health bar
+            document.getElementById('healthBar').style.width = playerHealth + '%';
+            
+            // Play hurt sound
+            hurtSound.play();
+            
+            // Check if player is dead
+            if (playerHealth <= 0) {
+                endGame();
+            }
+        }
+        
+        function endGame() {
+            // Stop game
+            gameStarted = false;
+            controls.enabled = false;
+            
+            // Exit pointer lock
+            document.exitPointerLock = document.exitPointerLock || document.mozExitPointerLock;
+            document.exitPointerLock();
+            
+            // Show game over screen
+            document.getElementById('finalScore').innerText = 'Your score: ' + score;
+            document.getElementById('finalWave').innerText = 'You survived until wave: ' + wave;
+            document.getElementById('gameOver').style.display = 'flex';
+            
+            // Clear any pending wave timeout
+            if (waveTimeout) {
+                clearTimeout(waveTimeout);
+                waveTimeout = null;
+            }
+        }
+        
+        function startGame() {
+            // Hide start screen
+            document.getElementById('startScreen').style.display = 'none';
+            
+            // Reset game variables
+            playerHealth = 100;
+            score = 0;
+            wave = 1;
+            zombiesInWave = 5;
+            zombiesSpawned = 0;
+            zombiesKilled = 0;
+            ammo = maxAmmo;
+            controls.canJump = false;
+            controls.isJumping = false;
+            
+            // Update UI
+            document.getElementById('score').innerText = 'Score: ' + score;
+            document.getElementById('healthBar').style.width = '100%';
+            updateAmmoDisplay();
+            
+            // Start game
+            gameStarted = true;
+            
+            // Show wave info
+            const waveInfo = document.getElementById('waveInfo');
+            waveInfo.innerText = 'Wave ' + wave;
+            waveInfo.style.opacity = 1;
+            
+            // Start background music
+            if (!backgroundMusic.isPlaying) {
+                backgroundMusic.play();
+                backgroundMusic.isPlaying = true;
+            }
+            
+            // Wait for a few seconds before starting first wave
+            waveTimeout = setTimeout(() => {
+                waveInfo.style.opacity = 0;
+                createZombie();
+            }, 3000);
+        }
+        
+        function restartGame() {
+            // Hide game over screen
+            document.getElementById('gameOver').style.display = 'none';
+            
+            // Remove all zombies
+            for (let i = zombies.length - 1; i >= 0; i--) {
+                scene.remove(zombies[i].group);
+                world.remove(zombies[i].body);
+            }
+            zombies = [];
+            
+            // Remove all bullets
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                scene.remove(bullets[i].mesh);
+            }
+            bullets = [];
+            
+            // Remove all power-ups
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                scene.remove(powerUps[i].mesh);
+            }
+            powerUps = [];
+            
+            // Reset power-up state
+            if (activePowerUp) {
+                activePowerUp.type.remove();
+                activePowerUp = null;
+            }
+            
+            // Reset player position
+            player.position.set(0, playerHeight, 0);
+            player.velocity.set(0, 0, 0);
+            camera.position.set(0, playerHeight, 0);
+            camera.rotation.set(0, 0, 0);
+            
+            // Reset shooting cooldown
+            shootCooldown = 300;
+            
+            // Start game
+            startGame();
+        }
+        
+        function shareScore(platform) {
+            let shareUrl = '';
+            const shareText = `I scored ${score} points and reached wave ${wave} in Zombie Shooter 3D!`;
+            
+            if (platform === 'twitter') {
+                shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}`;
+            } else if (platform === 'facebook') {
+                shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(window.location.href)}&quote=${encodeURIComponent(shareText)}`;
+            }
+            
+            window.open(shareUrl, '_blank');
+        }
+        
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+        
+        function onKeyDown(event) {
+            if (event.code === 'KeyR' && !isReloading && ammo < maxAmmo) {
+                reloadWeapon();
+            }
+            if (event.code === 'Space') {
+                jump();
+            }
+        }
+        
+        function reloadWeapon() {
+            if (!gameStarted || isReloading) return;
+            
+            isReloading = true;
+            
+            // Play reload sound
+            reloadSound.play();
+            
+            // Show reloading message
+            const reloadMsg = document.getElementById('reloadMessage');
+            reloadMsg.innerText = 'Reloading...';
+            reloadMsg.style.opacity = 1;
+            
+            // Reload after a delay
+            setTimeout(() => {
+                ammo = maxAmmo;
+                isReloading = false;
+                updateAmmoDisplay();
+                reloadMsg.style.opacity = 0;
+            }, 2000);
+        }
+        
+        function updateAmmoDisplay() {
+            document.getElementById('ammoCount').innerText = `Ammo: ${ammo}/${maxAmmo}`;
+        }
+        
+        function jump() {
+            if (!gameStarted || !controls.enabled) return;
+            
+            if (controls.canJump && !controls.isJumping) {
+                // Apply upward velocity for jump
+                player.velocity.y = 12;
+                controls.canJump = false;
+                controls.isJumping = true;
+            }
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            const delta = Math.min(clock.getDelta(), 0.1);
+            
+            // Update physics world
+            world.step(delta);
+            
+            // Update game objects
+            if (gameStarted) {
+                updatePlayer(delta);
+                updateZombies(delta);
+                updateBullets(delta);
+                updatePowerUps(delta);
+                updateLampLights(delta); // Add this line for lamp post flickering
+            }
+            
+            // Render scene
+            renderer.render(scene, camera);
+        }
+        
+        // Initialize the game when the page loads
+        window.onload = init;
+
+        // Create fence around the map
+        function createMapBoundary() {
+            // Create fence material
+            const fenceMaterial = new THREE.MeshStandardMaterial({
+                map: textures.wood,
+                roughness: 0.9,
+                metalness: 0.1,
+                color: 0x8B4513
+            });
+            
+            // Create fence posts material (slightly darker)
+            const postMaterial = new THREE.MeshStandardMaterial({
+                map: textures.bark,
+                roughness: 0.8,
+                metalness: 0.2,
+                color: 0x6B2813
+            });
+            
+            const fenceSegmentWidth = 5;
+            const halfWorldSize = WORLD_SIZE / 2;
+            
+            // Calculate number of segments needed for each side
+            const segmentsPerSide = Math.ceil(WORLD_SIZE / fenceSegmentWidth);
+            
+            // Create fences for all four sides
+            for (let side = 0; side < 4; side++) {
+                for (let i = 0; i < segmentsPerSide; i++) {
+                    const offset = (i * fenceSegmentWidth) - halfWorldSize + (fenceSegmentWidth / 2);
+                    
+                    let posX, posZ, rotationY;
+                    
+                    // Determine position based on which side we're on
+                    switch(side) {
+                        case 0: // North side
+                            posX = offset;
+                            posZ = halfWorldSize;
+                            rotationY = 0;
+                            break;
+                        case 1: // East side
+                            posX = halfWorldSize;
+                            posZ = -offset;
+                            rotationY = Math.PI / 2;
+                            break;
+                        case 2: // South side
+                            posX = -offset;
+                            posZ = -halfWorldSize;
+                            rotationY = Math.PI;
+                            break;
+                        case 3: // West side
+                            posX = -halfWorldSize;
+                            posZ = offset;
+                            rotationY = Math.PI * 3 / 2;
+                            break;
+                    }
+                    
+                    // Create fence segment group
+                    const fenceSegment = new THREE.Group();
+                    fenceSegment.position.set(posX, 0, posZ);
+                    fenceSegment.rotation.y = rotationY;
+                    scene.add(fenceSegment);
+                    
+                    // Create fence posts
+                    const postGeometry = new THREE.BoxGeometry(FENCE_THICKNESS, FENCE_HEIGHT + 0.5, FENCE_THICKNESS);
+                    
+                    // Left post
+                    const leftPost = new THREE.Mesh(postGeometry, postMaterial);
+                    leftPost.position.set(-fenceSegmentWidth/2, FENCE_HEIGHT/2, 0);
+                    leftPost.castShadow = true;
+                    leftPost.receiveShadow = true;
+                    fenceSegment.add(leftPost);
+                    
+                    // Right post (only for the last segment or if segments are disconnected)
+                    if (i === segmentsPerSide - 1) {
+                        const rightPost = new THREE.Mesh(postGeometry, postMaterial);
+                        rightPost.position.set(fenceSegmentWidth/2, FENCE_HEIGHT/2, 0);
+                        rightPost.castShadow = true;
+                        rightPost.receiveShadow = true;
+                        fenceSegment.add(rightPost);
+                    }
+                    
+                    // Create horizontal planks
+                    const plankHeight = 0.8;
+                    const plankGeometry = new THREE.BoxGeometry(fenceSegmentWidth, plankHeight, FENCE_THICKNESS);
+                    
+                    // Top plank
+                    const topPlank = new THREE.Mesh(plankGeometry, fenceMaterial);
+                    topPlank.position.set(0, FENCE_HEIGHT - plankHeight/2, 0);
+                    topPlank.castShadow = true;
+                    topPlank.receiveShadow = true;
+                    fenceSegment.add(topPlank);
+                    
+                    // Middle plank
+                    const middlePlank = new THREE.Mesh(plankGeometry, fenceMaterial);
+                    middlePlank.position.set(0, FENCE_HEIGHT/2, 0);
+                    middlePlank.castShadow = true;
+                    middlePlank.receiveShadow = true;
+                    fenceSegment.add(middlePlank);
+                    
+                    // Bottom plank
+                    const bottomPlank = new THREE.Mesh(plankGeometry, fenceMaterial);
+                    bottomPlank.position.set(0, plankHeight/2, 0);
+                    bottomPlank.castShadow = true;
+                    bottomPlank.receiveShadow = true;
+                    fenceSegment.add(bottomPlank);
+                    
+                    // Create vertical planks
+                    const verticalCount = 5; // Number of vertical planks between posts
+                    const verticalWidth = 0.6;
+                    const verticalSpacing = fenceSegmentWidth / (verticalCount + 1);
+                    const verticalGeometry = new THREE.BoxGeometry(verticalWidth, FENCE_HEIGHT, FENCE_THICKNESS);
+                    
+                    for (let j = 0; j < verticalCount; j++) {
+                        const verticalPos = -fenceSegmentWidth/2 + (j + 1) * verticalSpacing;
+                        const verticalPlank = new THREE.Mesh(verticalGeometry, fenceMaterial);
+                        verticalPlank.position.set(verticalPos, FENCE_HEIGHT/2, 0);
+                        verticalPlank.castShadow = true;
+                        verticalPlank.receiveShadow = true;
+                        fenceSegment.add(verticalPlank);
+                    }
+                    
+                    // Create physics body for this fence segment
+                    const fenceShape = new CANNON.Box(new CANNON.Vec3(fenceSegmentWidth/2, FENCE_HEIGHT/2, FENCE_THICKNESS/2));
+                    const fenceBody = new CANNON.Body({ mass: 0 }); // Static body
+                    fenceBody.addShape(fenceShape);
+                    
+                    // Position the body at the fence segment's position
+                    const worldPos = new CANNON.Vec3(posX, FENCE_HEIGHT/2, posZ);
+                    fenceBody.position.copy(worldPos);
+                    
+                    // Apply the same rotation
+                    if (rotationY !== 0) {
+                        fenceBody.quaternion.setFromAxisAngle(new CANNON.Vec3(0, 1, 0), rotationY);
+                    }
+                    
+                    world.addBody(fenceBody);
+                    
+                    // Add to obstacles
+                    obstacles.push({
+                        mesh: fenceSegment,
+                        body: fenceBody
+                    });
+                }
+            }
+        }
+    </script>
+</body>
+</html>
