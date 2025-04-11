@@ -162,6 +162,8 @@
         <h1>ZOMBIE SHOOTER 3D</h1>
         <p>Survive waves of zombies for as long as possible!</p>
         <p>WASD to move, Mouse to aim, Left-click to shoot, R to reload, Space to jump</p>
+        <p>INTERACTIVE VISUALISATION CREATED BY ALEXANRU COJESCU</p>
+   
         <button id="startButton">START GAME</button>
     </div>
     <div id="gameOver">
@@ -199,7 +201,7 @@
         let ammo = 10;
         let maxAmmo = 10;
         let isReloading = false;
-        let playerHeight = 1.8;
+        let playerHeight = 2.2; // Increased from 1.8 to 2.2
         let buildingDoors = []; // Array to store door positions for zombie spawning
         let buildings = []; // Array to store building information for overlap checking
         let trees = []; // Array to store tree information for overlap checking
@@ -215,6 +217,8 @@
         const OBSTACLE_DETECTION_RADIUS = 3; // How far zombies can detect obstacles
         const STEERING_FORCE = 5; // How strongly zombies steer around obstacles
         const WAYPOINT_REACHED_THRESHOLD = 1.5; // How close zombies need to get to a waypoint
+        const STUCK_THRESHOLD = 0.2; // How slow a zombie needs to be moving to be considered stuck
+        const STUCK_TIME_THRESHOLD = 1.5; // How long a zombie needs to be stuck before taking action
 
         // Texture loader
         let textureLoader = new THREE.TextureLoader();
@@ -2055,7 +2059,10 @@
                 let steeringDirection = new THREE.Vector3().copy(toPlayer);
                 
                 // Check if zombie has waypoints and update them
-                updateZombieWaypoints(zombie);
+                updateZombieWaypoints(zombie, delta);
+                
+                // Initialize or update the zombie movement tracking properties
+                initZombieMovementTracking(zombie);
                 
                 // If zombie has an active waypoint, steer towards it instead of directly to player
                 if (zombie.waypoint) {
@@ -2084,9 +2091,18 @@
                     }
                 }
                 
+                // Check if the zombie is stuck
+                if (checkIfZombieStuck(zombie, delta)) {
+                    // Apply unstuck behavior
+                    applyUnstuckBehavior(zombie, steeringDirection);
+                }
+                
                 // Move zombie towards steering direction
                 zombie.body.velocity.x = steeringDirection.x * zombie.speed;
                 zombie.body.velocity.z = steeringDirection.z * zombie.speed;
+                
+                // Store current position for stuck detection in the next frame
+                zombie.prevPosition.copy(zombie.body.position);
                 
                 // Update zombie mesh position
                 zombie.group.position.copy(zombie.body.position);
@@ -2131,88 +2147,107 @@
             }
         }
         
-        // Function to detect obstacles and create waypoints for zombie pathfinding
-        function detectObstaclesAndCreateWaypoints(zombie, directionToPlayer) {
-            // Cast rays in different directions to detect obstacles
-            const zombiePosition = new THREE.Vector3(zombie.body.position.x, 0.5, zombie.body.position.z);
+        // Initialize zombie movement tracking properties
+        function initZombieMovementTracking(zombie) {
+            if (!zombie.prevPosition) {
+                zombie.prevPosition = new THREE.Vector3().copy(zombie.body.position);
+                zombie.stuckTime = 0;
+                zombie.isStuck = false;
+                zombie.stuckDirection = new THREE.Vector3();
+                zombie.unstuckAttempts = 0;
+            }
+        }
+        
+        // Check if a zombie is stuck by measuring its movement over time
+        function checkIfZombieStuck(zombie, delta) {
+            // Calculate how far the zombie has moved since the last frame
+            const movement = new THREE.Vector3().subVectors(zombie.body.position, zombie.prevPosition);
+            const movementDistance = movement.length();
             
-            // Create main ray cast towards player to see if there's a direct path
-            const directRaycaster = new THREE.Raycaster(zombiePosition, directionToPlayer, 0, OBSTACLE_DETECTION_RADIUS * 2);
-            const directHits = directRaycaster.intersectObjects(obstacles.map(o => o.mesh));
-            
-            // If there's a direct path to player with no obstacles, no need for waypoints
-            if (directHits.length === 0) {
-                return;
+            // If the zombie is barely moving (but should be), it might be stuck
+            if (movementDistance < STUCK_THRESHOLD * delta * zombie.speed) {
+                zombie.stuckTime += delta;
+                
+                // If stuck for too long, mark as stuck
+                if (zombie.stuckTime > STUCK_TIME_THRESHOLD) {
+                    zombie.isStuck = true;
+                    return true;
+                }
+            } else {
+                // Reset stuck timer if moving properly
+                zombie.stuckTime = 0;
+                zombie.isStuck = false;
             }
             
-            // There's an obstacle, we need to find a way around it
-            // Cast rays at angles to find the edge of the obstacle
-            const numProbes = 12; // Number of rays to cast in a fan pattern
-            const maxAngle = Math.PI / 1.5; // 120 degrees fan
+            return false;
+        }
+        
+        // Apply behavior to get unstuck
+        function applyUnstuckBehavior(zombie, currentDirection) {
+            // Increment unstuck attempts
+            zombie.unstuckAttempts++;
             
-            let bestDirection = null;
-            let shortestDistance = Infinity;
-            
-            for (let i = -numProbes/2; i <= numProbes/2; i++) {
-                if (i === 0) continue; // Skip the direct path as we already know there's an obstacle
+            // Different strategies based on how many unstuck attempts have been made
+            if (zombie.unstuckAttempts === 1) {
+                // First attempt: Try jumping slightly to get over small obstacles
+                zombie.body.velocity.y = 5;
+            } else if (zombie.unstuckAttempts === 2) {
+                // Second attempt: Try moving perpendicular to current direction
+                zombie.stuckDirection.set(-currentDirection.z, 0, currentDirection.x);
+                // Create a temporary waypoint in this direction
+                const waypointDistance = 5;
+                zombie.waypoint = new THREE.Vector3(
+                    zombie.body.position.x + zombie.stuckDirection.x * waypointDistance,
+                    0,
+                    zombie.body.position.z + zombie.stuckDirection.z * waypointDistance
+                );
+            } else if (zombie.unstuckAttempts === 3) {
+                // Third attempt: Try the opposite perpendicular direction
+                zombie.stuckDirection.set(currentDirection.z, 0, -currentDirection.x);
+                // Create a temporary waypoint in this direction
+                const waypointDistance = 5;
+                zombie.waypoint = new THREE.Vector3(
+                    zombie.body.position.x + zombie.stuckDirection.x * waypointDistance,
+                    0,
+                    zombie.body.position.z + zombie.stuckDirection.z * waypointDistance
+                );
+            } else if (zombie.unstuckAttempts >= 4) {
+                // Last resort: Teleport a small distance toward the player
+                // This prevents permanent sticking but is not noticeable enough to break immersion
+                const toPlayer = new THREE.Vector3().subVectors(
+                    new THREE.Vector3(player.position.x, 0, player.position.z),
+                    new THREE.Vector3(zombie.body.position.x, 0, zombie.body.position.z)
+                ).normalize();
                 
-                // Calculate angle offset
-                const angleOffset = (i / (numProbes/2)) * maxAngle;
-                
-                // Calculate direction for this probe
-                const probeDirection = new THREE.Vector3().copy(directionToPlayer);
-                
-                // Rotate around Y axis by angle offset
-                const rotationMatrix = new THREE.Matrix4().makeRotationY(angleOffset);
-                probeDirection.applyMatrix4(rotationMatrix);
-                
-                // Cast ray in this direction
-                const probeRaycaster = new THREE.Raycaster(zombiePosition, probeDirection, 0, OBSTACLE_DETECTION_RADIUS * 3);
-                const probeHits = probeRaycaster.intersectObjects(obstacles.map(o => o.mesh));
-                
-                // If this direction is clear or hits something far away
-                if (probeHits.length === 0 || probeHits[0].distance > OBSTACLE_DETECTION_RADIUS * 1.5) {
-                    // Record this as a potential path around the obstacle
-                    const distanceEstimate = Math.abs(angleOffset); // Prefer directions closer to the direct path
-                    
-                    if (distanceEstimate < shortestDistance) {
-                        shortestDistance = distanceEstimate;
-                        bestDirection = probeDirection;
-                    }
-                }
-            }
-            
-            // If we found a clear path direction, create a waypoint
-            if (bestDirection) {
-                // Calculate waypoint position at a distance from zombie in the best direction
-                const waypointDistance = OBSTACLE_DETECTION_RADIUS * 1.2;
-                const waypoint = new THREE.Vector3()
-                    .copy(zombiePosition)
-                    .add(bestDirection.multiplyScalar(waypointDistance));
-                
-                // Set the waypoint
-                zombie.waypoint = waypoint;
-                
-                // Debug visualization (remove in production)
-                /*
-                if (zombie.debugWaypoint) {
-                    scene.remove(zombie.debugWaypoint);
-                }
-                const waypointGeometry = new THREE.SphereGeometry(0.5, 8, 8);
-                const waypointMaterial = new THREE.MeshBasicMaterial({color: 0xff0000});
-                zombie.debugWaypoint = new THREE.Mesh(waypointGeometry, waypointMaterial);
-                zombie.debugWaypoint.position.copy(waypoint);
-                scene.add(zombie.debugWaypoint);
-                */
+                zombie.body.position.x += toPlayer.x * 3;
+                zombie.body.position.z += toPlayer.z * 3;
+                zombie.body.velocity.set(0, 0, 0);
+                zombie.unstuckAttempts = 0; // Reset attempts
+                zombie.stuckTime = 0; // Reset stuck time
+                zombie.isStuck = false;
+                zombie.waypoint = null; // Clear any waypoints
             }
         }
         
         // Update zombie waypoints and check if they've been reached
-        function updateZombieWaypoints(zombie) {
+        function updateZombieWaypoints(zombie, delta) {
             // Initialize waypoint properties if they don't exist
             if (zombie.waypoint === undefined) {
                 zombie.waypoint = null;
                 zombie.waypointTimer = 0;
+            }
+            
+            // If the zombie has a waypoint but has been trying to reach it for too long, clear it
+            if (zombie.waypoint && !zombie.waypointCreationTime) {
+                zombie.waypointCreationTime = Date.now();
+            }
+            
+            // If waypoint is too old, clear it to prevent getting stuck in an unreachable waypoint
+            if (zombie.waypoint && zombie.waypointCreationTime && 
+                Date.now() - zombie.waypointCreationTime > 5000) { // 5 seconds max
+                zombie.waypoint = null;
+                zombie.waypointTimer = 0;
+                zombie.waypointCreationTime = null;
             }
         }
         
@@ -2588,6 +2623,117 @@
                     });
                 }
             }
+        }
+
+        // Function to detect obstacles and create waypoints for zombie pathfinding
+        function detectObstaclesAndCreateWaypoints(zombie, directionToPlayer) {
+            // Cast rays in different directions to detect obstacles
+            const zombiePosition = new THREE.Vector3(zombie.body.position.x, 0.5, zombie.body.position.z);
+            
+            // Create main ray cast towards player to see if there's a direct path
+            const directRaycaster = new THREE.Raycaster(zombiePosition, directionToPlayer, 0, OBSTACLE_DETECTION_RADIUS * 2);
+            const directHits = directRaycaster.intersectObjects(obstacles.map(o => o.mesh));
+            
+            // If there's a direct path to player with no obstacles, no need for waypoints
+            if (directHits.length === 0) {
+                return;
+            }
+            
+            // There's an obstacle, we need to find a way around it
+            // Cast rays at angles to find the edge of the obstacle
+            const numProbes = 16; // Increased from 12 for better coverage
+            const maxAngle = Math.PI / 1.2; // Widened from 1.5 for better angles (150 degrees fan)
+            
+            let bestDirection = null;
+            let shortestDistance = Infinity;
+            
+            for (let i = -numProbes/2; i <= numProbes/2; i++) {
+                if (i === 0) continue; // Skip the direct path as we already know there's an obstacle
+                
+                // Calculate angle offset
+                const angleOffset = (i / (numProbes/2)) * maxAngle;
+                
+                // Calculate direction for this probe
+                const probeDirection = new THREE.Vector3().copy(directionToPlayer);
+                
+                // Rotate around Y axis by angle offset
+                const rotationMatrix = new THREE.Matrix4().makeRotationY(angleOffset);
+                probeDirection.applyMatrix4(rotationMatrix);
+                
+                // Cast ray in this direction
+                const probeRaycaster = new THREE.Raycaster(zombiePosition, probeDirection, 0, OBSTACLE_DETECTION_RADIUS * 3);
+                const probeHits = probeRaycaster.intersectObjects(obstacles.map(o => o.mesh));
+                
+                // If this direction is clear or hits something far away
+                if (probeHits.length === 0 || probeHits[0].distance > OBSTACLE_DETECTION_RADIUS * 1.5) {
+                    // Record this as a potential path around the obstacle
+                    const distanceEstimate = Math.abs(angleOffset); // Prefer directions closer to the direct path
+                    
+                    if (distanceEstimate < shortestDistance) {
+                        shortestDistance = distanceEstimate;
+                        bestDirection = probeDirection;
+                    }
+                }
+            }
+            
+            // If we found a clear path direction, create a waypoint
+            if (bestDirection) {
+                // Calculate multiple potential waypoints at different distances
+                const distances = [OBSTACLE_DETECTION_RADIUS * 1.2, OBSTACLE_DETECTION_RADIUS * 1.8, OBSTACLE_DETECTION_RADIUS * 2.5];
+                
+                // Try each distance to find a valid waypoint
+                for (const waypointDistance of distances) {
+                    const potentialWaypoint = new THREE.Vector3()
+                        .copy(zombiePosition)
+                        .add(bestDirection.clone().multiplyScalar(waypointDistance));
+                    
+                    // Check if this waypoint is inside an obstacle
+                    const isWaypointValid = !isPointInsideObstacle(potentialWaypoint);
+                    
+                    if (isWaypointValid) {
+                        // Set the waypoint
+                        zombie.waypoint = potentialWaypoint;
+                        zombie.waypointCreationTime = Date.now();
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Check if a point is inside any obstacle
+        function isPointInsideObstacle(point) {
+            for (const building of buildings) {
+                const halfWidth = building.width / 2;
+                const halfDepth = building.depth / 2;
+                
+                if (point.x >= building.x - halfWidth && point.x <= building.x + halfWidth &&
+                    point.z >= building.z - halfDepth && point.z <= building.z + halfDepth) {
+                    return true;
+                }
+            }
+            
+            // Check trees and lamp posts as well using distance checks
+            for (const tree of trees) {
+                const dx = point.x - tree.x;
+                const dz = point.z - tree.z;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+                
+                if (distance < tree.radius) {
+                    return true;
+                }
+            }
+            
+            for (const lamp of lampPosts) {
+                const dx = point.x - lamp.x;
+                const dz = point.z - lamp.z;
+                const distance = Math.sqrt(dx * dx + dz * dz);
+                
+                if (distance < lamp.radius) {
+                    return true;
+                }
+            }
+            
+            return false;
         }
     </script>
 </body>
